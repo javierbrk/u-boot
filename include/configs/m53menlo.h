@@ -15,9 +15,9 @@
  * Memory configurations
  */
 #define PHYS_SDRAM_1			CSD0_BASE_ADDR
-#define PHYS_SDRAM_1_SIZE		(gd->bd->bi_dram[0].size)
+#define PHYS_SDRAM_1_SIZE		(gd->dram[0].size)
 #define PHYS_SDRAM_2			CSD1_BASE_ADDR
-#define PHYS_SDRAM_2_SIZE		(gd->bd->bi_dram[1].size)
+#define PHYS_SDRAM_2_SIZE		(gd->dram[1].size)
 #define PHYS_SDRAM_SIZE			(gd->ram_size)
 
 #define CFG_SYS_SDRAM_BASE		(PHYS_SDRAM_1)
@@ -93,13 +93,6 @@
 	"splashfile=boot/usplash.bmp.gz\0"				\
 	"splashimage=0x88000000\0"					\
 	"splashpos=m,m\0"						\
-	"altbootcmd="							\
-		"if test ${mmcpart} -eq 1 ; then "			\
-			"setenv mmcpart 2 ; "				\
-		"else "							\
-			"setenv mmcpart 1 ; "				\
-		"fi ; "							\
-		"boot\0"						\
 	"stdout=serial,vidconsole\0"					\
 	"stderr=serial,vidconsole\0"					\
 	"addcons="							\

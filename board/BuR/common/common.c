@@ -13,11 +13,8 @@
 #include <env.h>
 #include <fdtdec.h>
 #include <i2c.h>
-#include <asm/global_data.h>
 #include <linux/delay.h>
 #include "bur_common.h"
-
-DECLARE_GLOBAL_DATA_PTR;
 
 /* --------------------------------------------------------------------------*/
 
@@ -68,7 +65,7 @@ int brdefaultip_setup(int bus, int chip)
 			 "if test -r ${ipaddr}; then; else setenv ipaddr 192.168.60.%d; setenv serverip 192.168.60.254; setenv gatewayip 192.168.60.254; setenv netmask 255.255.255.0; fi;",
 			 u8buf);
 	else
-		strncpy(defip,
+		strlcpy(defip,
 			"if test -r ${ipaddr}; then; else setenv ipaddr 192.168.60.1; setenv serverip 192.168.60.254; setenv gatewayip 192.168.60.254; setenv netmask 255.255.255.0; fi;",
 			sizeof(defip));
 

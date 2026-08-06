@@ -367,11 +367,15 @@ int cmd_auto_complete(const char *const prompt, char *buf, int *np, int *colp)
 	int i, j, k, len, seplen, argc;
 	int cnt;
 	char last_char;
-#ifdef CONFIG_CMDLINE_PS_SUPPORT
-	const char *ps_prompt = env_get("PS1");
-#else
-	const char *ps_prompt = CONFIG_SYS_PROMPT;
-#endif
+	const char *ps_prompt;
+
+	if (IS_ENABLED(CONFIG_CMDLINE_PS_SUPPORT)) {
+		ps_prompt = env_get("PS1");
+
+		if (!ps_prompt)
+			ps_prompt = CONFIG_SYS_PROMPT;
+	} else
+		ps_prompt = CONFIG_SYS_PROMPT;
 
 	if (strcmp(prompt, ps_prompt) != 0)
 		return 0;	/* not in normal console */
@@ -484,7 +488,7 @@ int cmd_get_data_size(const char *arg, int default_size)
 		case 'q':
 			if (MEM_SUPPORT_64BIT_DATA)
 				return 8;
-			/* no break */
+			fallthrough;
 		default:
 			return CMD_DATA_SIZE_ERR;
 		}

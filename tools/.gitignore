@@ -11,6 +11,7 @@
 /file2include
 /fit_check_sign
 /fit_info
+/fwumdata
 /gdb/gdbcont
 /gdb/gdbsend
 /gen_eth_addr
@@ -24,11 +25,13 @@
 /mkeficapsule
 /mkenvimage
 /mkexynosspl
+/mkfwumdata
 /mkimage
 /mksunxiboot
 /mxsboot
 /ncb
 /prelink-riscv
+/preload_check_sign
 /printinitialenv
 /proftool
 /relocate-rela

@@ -3,9 +3,9 @@
 # (C) Copyright 2000-2007
 # Wolfgang Denk, DENX Software Engineering, wd@denx.de.
 
-ifdef CONFIG_$(XPL_)DM_USB
+ifdef CONFIG_$(PHASE_)DM_USB
 obj-y += usb-uclass.o
-obj-$(CONFIG_SANDBOX) += usb-sandbox.o
+obj-$(CONFIG_USB_EMUL) += usb-sandbox.o
 endif
 
 ifdef CONFIG_$(PHASE_)USB_STORAGE

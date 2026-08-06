@@ -76,8 +76,8 @@ There are two ways to apply overlays in U-Boot.
 * Manually load and apply overlays
 
 The remainder of this document will discuss using overlays via the manual
-approach. For information on using overlays as part of a FIT image please see:
-doc/uImage.FIT/overlay-fdt-boot.txt
+approach. For information on using overlays as part of a FIT image please see
+:ref:`fit_configuration_using_overlays`.
 
 Manually Loading and Applying Overlays
 --------------------------------------
@@ -88,8 +88,8 @@ Manually Loading and Applying Overlays
 
 ::
 
-    => setenv fdtaddr 0x87f00000
-    => setenv fdtovaddr 0x87fc0000
+    => env set fdtaddr 0x87f00000
+    => env set fdtovaddr 0x87fc0000
 
 2. Load the base binary device-tree and the binary device-tree overlay.
 
@@ -104,11 +104,11 @@ Manually Loading and Applying Overlays
 
     => fdt addr $fdtaddr
 
-4. Grow it enough so it can encompass all applied overlays
+4. Grow it enough so it can encompass all applied overlays (the argument in hex)
 
 ::
 
-    => fdt resize 8192
+    => fdt resize 2000
 
 5. You are now ready to apply the overlay.
 

@@ -32,6 +32,10 @@
 #include "j721e_hardware.h"
 #endif
 
+#ifdef CONFIG_SOC_K3_J7200
+#include "j721e_hardware.h"
+#endif
+
 #ifdef CONFIG_SOC_K3_J721S2
 #include "j721s2_hardware.h"
 #endif
@@ -61,6 +65,12 @@
 #define JTAG_ID_PARTNO_J721S2	0xbb75
 #define JTAG_ID_PARTNO_J722S	0xbba0
 #define JTAG_ID_PARTNO_J784S4	0xbb80
+
+#define CTRLMMR_WKUP_JTAG_DEVICE_ID		(WKUP_CTRL_MMR0_BASE + 0x18)
+#define JTAG_DEV_J742S2_PKG_MASK		GENMASK(2, 0)
+#define JTAG_DEV_J742S2_PKG_SHIFT		0
+
+#define JTAG_ID_PKG_J742S2	0x7
 
 #define K3_SOC_ID(id, ID) \
 static inline bool soc_is_##id(void) \
@@ -114,5 +124,27 @@ struct rom_extended_boot_data {
 	u32 num_components;
 };
 
+enum k3_device_type {
+	K3_DEVICE_TYPE_BAD,
+	K3_DEVICE_TYPE_GP,
+	K3_DEVICE_TYPE_TEST,
+	K3_DEVICE_TYPE_EMU,
+	K3_DEVICE_TYPE_HS_FS,
+	K3_DEVICE_TYPE_HS_SE,
+};
+
 u32 get_boot_device(void);
+const char *get_reset_reason(void);
+enum k3_device_type get_device_type(void);
+int k3_fit_config_match_security_state(const char *name);
+
+#define writel_verify(val, addr) \
+do { \
+	u32 readback; \
+	writel(val, addr); \
+	readback = readl(addr); \
+	if (readback != val) \
+		printf("writel_verify failed: addr=0x%p, expected=0x%x, got=0x%x\n", \
+		       (void *)(addr), (val), readback); \
+} while (0)
 #endif /* _ASM_ARCH_HARDWARE_H_ */

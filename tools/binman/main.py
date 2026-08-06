@@ -77,8 +77,8 @@ def RunTests(debug, verbosity, processes, test_preserve_dirs, args, toolpath):
     # Run the entry tests first ,since these need to be the first to import the
     # 'entry' module.
     result = test_util.run_test_suites(
-        'binman', debug, verbosity, test_preserve_dirs, processes, test_name,
-        toolpath,
+        'binman', debug, verbosity, False, test_preserve_dirs, processes,
+        test_name, toolpath,
         [bintool_test.TestBintool, entry_test.TestEntry, ftest.TestFunctional,
          fdt_test.TestFdt, elf_test.TestElf, image_test.TestImage,
          cbfs_util_test.TestCbfs, fip_util_test.TestFip])
@@ -94,6 +94,7 @@ def RunTestCoverage(toolpath, build_dir, args):
     if toolpath:
         for path in toolpath:
             extra_args += ' --toolpath %s' % path
+
     test_util.run_test_coverage('tools/binman/binman', None,
             ['*test*', '*main.py', 'tools/patman/*', 'tools/dtoc/*',
              'tools/u_boot_pylib/*'],

@@ -81,7 +81,10 @@ struct driver_info;
  */
 #define DM_FLAG_VITAL			(1 << 14)
 
-/* Device must be probed after it was bound */
+/* Device must be probed after it was bound. This flag is per-device and does
+ * nothing if set on a U_BOOT_DRIVER() definition. Apply it with
+ * dev_or_flags(dev, DM_FLAG_PROBE_AFTER_BIND) in the devices bind function.
+ */
 #define DM_FLAG_PROBE_AFTER_BIND	(1 << 15)
 
 /*
@@ -163,8 +166,9 @@ enum {
  *		When CONFIG_DEVRES is enabled, devm_kmalloc() and friends will
  *		add to this list. Memory so-allocated will be freed
  *		automatically when the device is removed / unbound
- * @dma_offset: Offset between the physical address space (CPU's) and the
- *		device's bus address space
+ * @dma_cpu: DMA physical address space (CPU's)
+ * @dma_bus: DMA device's bus address space
+ * @dma_size: DMA window size
  * @iommu: IOMMU device associated with this device
  */
 struct udevice {
@@ -193,7 +197,9 @@ struct udevice {
 	struct list_head devres_head;
 #endif
 #if CONFIG_IS_ENABLED(DM_DMA)
-	ulong dma_offset;
+	phys_addr_t dma_cpu;
+	dma_addr_t dma_bus;
+	u64 dma_size;
 #endif
 #if CONFIG_IS_ENABLED(IOMMU)
 	struct udevice *iommu;
@@ -268,14 +274,6 @@ static inline __attribute_const__ ofnode dev_ofnode(const struct udevice *dev)
 
 /* Returns non-zero if the device is active (probed and not removed) */
 #define device_active(dev)	(dev_get_flags(dev) & DM_FLAG_ACTIVATED)
-
-#if CONFIG_IS_ENABLED(DM_DMA)
-#define dev_set_dma_offset(_dev, _offset)	_dev->dma_offset = _offset
-#define dev_get_dma_offset(_dev)		_dev->dma_offset
-#else
-#define dev_set_dma_offset(_dev, _offset)
-#define dev_get_dma_offset(_dev)		0
-#endif
 
 static inline __attribute_const__ int dev_of_offset(const struct udevice *dev)
 {
@@ -390,7 +388,7 @@ struct driver {
 	const void *ops;	/* driver-specific operations */
 	uint32_t flags;
 #if CONFIG_IS_ENABLED(ACPIGEN)
-	struct acpi_ops *acpi_ops;
+	const struct acpi_ops *acpi_ops;
 #endif
 };
 

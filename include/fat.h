@@ -11,7 +11,6 @@
 
 #include <fs.h>
 #include <asm/byteorder.h>
-#include <asm/cache.h>
 
 struct disk_partition;
 
@@ -166,7 +165,9 @@ typedef struct {
 	int	fatsize;	/* Size of FAT in bits */
 	__u32	fatlength;	/* Length of FAT in sectors */
 	__u16	fat_sect;	/* Starting sector of the FAT */
+#ifdef CONFIG_FAT_WRITE
 	__u8	fat_dirty;      /* Set if fatbuf has been modified */
+#endif
 	__u32	rootdir_sect;	/* Start sector of root directory */
 	__u16	sect_size;	/* Size of sectors in bytes */
 	__u16	clust_size;	/* Size of clusters in sectors */
@@ -191,6 +192,30 @@ static inline u32 sect_to_clust(fsdata *fsdata, int sect)
 	return (sect - fsdata->data_begin) / fsdata->clust_size;
 }
 
+static inline void fat_mark_clean(fsdata *fsdata)
+{
+#ifdef CONFIG_FAT_WRITE
+	fsdata->fat_dirty = 0;
+#endif
+}
+
+static inline void fat_mark_dirty(fsdata *fsdata)
+{
+#ifdef CONFIG_FAT_WRITE
+	fsdata->fat_dirty = 1;
+#endif
+}
+
+static inline bool fat_is_dirty(fsdata *fsdata)
+{
+#ifdef CONFIG_FAT_WRITE
+	if (fsdata->fat_dirty)
+		return true;
+#endif
+
+	return false;
+}
+
 int file_fat_detectfs(void);
 int fat_exists(const char *filename);
 int fat_size(const char *filename, loff_t *size);
@@ -206,6 +231,7 @@ int fat_opendir(const char *filename, struct fs_dir_stream **dirsp);
 int fat_readdir(struct fs_dir_stream *dirs, struct fs_dirent **dentp);
 void fat_closedir(struct fs_dir_stream *dirs);
 int fat_unlink(const char *filename);
+int fat_rename(const char *old_path, const char *new_path);
 int fat_mkdir(const char *dirname);
 void fat_close(void);
 void *fat_next_cluster(fat_itr *itr, unsigned int *nbytes);

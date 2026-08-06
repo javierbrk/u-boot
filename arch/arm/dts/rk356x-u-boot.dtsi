@@ -21,20 +21,9 @@
 		bootph-all;
 	};
 
-	rng: rng@fe388000 {
-		compatible = "rockchip,cryptov2-rng";
-		reg = <0x0 0xfe388000 0x0 0x2000>;
-	};
-
-	otp: nvmem@fe38c000 {
+	otp: efuse@fe38c000 {
 		compatible = "rockchip,rk3568-otp";
 		reg = <0x0 0xfe38c000 0x0 0x4000>;
-		#address-cells = <1>;
-		#size-cells = <1>;
-
-		cpu_id: id@a {
-			reg = <0x0a 0x10>;
-		};
 	};
 };
 
@@ -121,6 +110,10 @@
 	bootph-all;
 };
 
+&rng {
+	status = "okay";
+};
+
 &sdhci {
 	bootph-pre-ram;
 	bootph-some-ram;
@@ -158,6 +151,7 @@
 };
 
 &sfc {
+	bootph-some-ram;
 	u-boot,spl-sfc-no-dma;
 };
 

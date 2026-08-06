@@ -59,14 +59,6 @@
 		"Try again, or contact GE Service for support.\"; " \
 		"bootcount reset; " \
 		"while true; do sleep 1; done; \0" \
-	"altbootcmd=" \
-		"run doquiet; " \
-		"setenv partnum 1; run hasfirstboot || setenv partnum 2; " \
-		"run hasfirstboot || setenv partnum 0; " \
-		"if test ${partnum} != 0; then " \
-			"run swappartitions loadimage doboot; " \
-		"fi; " \
-		"run failbootcmd\0" \
 	"loadimage=" \
 		"ext2load ${dev} ${devnum}:${partnum} ${loadaddr} ${image}\0" \
 	"doboot=" \
@@ -89,9 +81,9 @@
 
 /* Physical Memory Map */
 #define PHYS_SDRAM_1			CSD0_BASE_ADDR
-#define PHYS_SDRAM_1_SIZE		(gd->bd->bi_dram[0].size)
+#define PHYS_SDRAM_1_SIZE		(gd->dram[0].size)
 #define PHYS_SDRAM_2			CSD1_BASE_ADDR
-#define PHYS_SDRAM_2_SIZE		(gd->bd->bi_dram[1].size)
+#define PHYS_SDRAM_2_SIZE		(gd->dram[1].size)
 #define PHYS_SDRAM_SIZE			(gd->ram_size)
 
 #define CFG_SYS_SDRAM_BASE		(PHYS_SDRAM_1)

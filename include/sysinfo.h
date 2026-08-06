@@ -12,6 +12,7 @@
 struct udevice;
 
 #define SYSINFO_CACHE_LVL_MAX 3
+#define SYSINFO_MEM_HANDLE_MAX 8
 
 /*
  * This uclass encapsulates hardware methods to gather information about a
@@ -57,6 +58,7 @@ enum sysinfo_id {
 	SYSID_SM_SYSTEM_WAKEUP,
 	SYSID_SM_SYSTEM_SKU,
 	SYSID_SM_SYSTEM_FAMILY,
+	SYSID_SM_SYSTEM_UUID,
 
 	/* Baseboard (or Module) Information (Type 2) */
 	SYSID_SM_BASEBOARD_MANUFACTURER,
@@ -148,9 +150,14 @@ enum sysinfo_id {
 	SYSID_SM_CACHE_INFO_END =
 		SYSID_SM_CACHE_INST_SIZE2 + SYSINFO_CACHE_LVL_MAX - 1,
 
+	/* Memory Array (Type 16) */
+	SYSID_SM_MEMARRAY_HANDLE,
+
 	/* For show_board_info() */
 	SYSID_BOARD_MODEL,
 	SYSID_BOARD_MANUFACTURER,
+	SYSID_BOARD_MAC_ADDR,
+	SYSID_BOARD_RAM_SIZE_MB,
 	SYSID_PRIOR_STAGE_VERSION,
 	SYSID_PRIOR_STAGE_DATE,
 
@@ -219,6 +226,30 @@ struct sysinfo_ops {
 	 * Return: 0 if OK, -ve on error.
 	 */
 	int (*get_data)(struct udevice *dev, int id, void **data, size_t *size);
+
+	/**
+	 * get_item_count() - Get the item count of the specific data area that
+	 *		describes the hardware setup.
+	 * @dev:	The sysinfo instance to gather the data.
+	 * @id:		A unique identifier for the data area to be get.
+	 *
+	 * Return: non-negative item count if OK, -ve on error.
+	 */
+	int (*get_item_count)(struct udevice *dev, int id);
+
+	/**
+	 * get_data_by_index() - Get a data value by index from the platform.
+	 *
+	 * @dev:	The sysinfo instance to gather the data.
+	 * @id:		A unique identifier for the data area to be get.
+	 * @index:	The item index, starting from 0.
+	 * @data:	Pointer to the address of the data area.
+	 * @size:	Pointer to the size of the data area.
+	 *
+	 * Return: 0 if OK, -ve on error.
+	 */
+	int (*get_data_by_index)(struct udevice *dev, int id, int index,
+				 void **data, size_t *size);
 
 	/**
 	 * get_fit_loadable - Get the name of an image to load from FIT
@@ -304,6 +335,32 @@ int sysinfo_get_str(struct udevice *dev, int id, size_t size, char *val);
 int sysinfo_get_data(struct udevice *dev, int id, void **data, size_t *size);
 
 /**
+ * sysinfo_get_item_count() - Get the item count of the specific data area that
+ *			    describes the hardware setup.
+ * @dev:	The sysinfo instance to gather the data.
+ * @id:		A unique identifier for the data area to be get.
+ *
+ * Return: non-negative item count if OK, -EPERM if called before
+ * sysinfo_detect(), else -ve on error.
+ */
+int sysinfo_get_item_count(struct udevice *dev, int id);
+
+/**
+ * sysinfo_get_data_by_index() - Get a data value by index from the platform.
+ *
+ * @dev:	The sysinfo instance to gather the data.
+ * @id:		A unique identifier for the data area to be get.
+ * @index:	The item index, starting from 0.
+ * @data:	Pointer to the address of the data area.
+ * @size:	Pointer to the size of the data area.
+ *
+ * Return: 0 if OK, -EPERM if called before sysinfo_detect(), else -ve on
+ * error.
+ */
+int sysinfo_get_data_by_index(struct udevice *dev, int id, int index,
+			      void **data, size_t *size);
+
+/**
  * sysinfo_get() - Return the sysinfo device for the sysinfo in question.
  * @devp: Pointer to structure to receive the sysinfo device.
  *
@@ -315,6 +372,18 @@ int sysinfo_get_data(struct udevice *dev, int id, void **data, size_t *size);
  * error.
  */
 int sysinfo_get(struct udevice **devp);
+
+/**
+ * sysinfo_get_and_detect() - Get the sysinfo device and detect it.
+ *
+ * @devp:	Pointer to structure to receive the sysinfo device.
+ *
+ * This is a convenience wrapper around sysinfo_get() followed by
+ * sysinfo_detect()
+ *
+ * Return: 0 if OK, -ve on error.
+ */
+int sysinfo_get_and_detect(struct udevice **devp);
 
 /**
  * sysinfo_get_fit_loadable - Get the name of an image to load from FIT
@@ -364,7 +433,24 @@ static inline int sysinfo_get_data(struct udevice *dev, int id, void **data,
 	return -ENOSYS;
 }
 
+static inline int sysinfo_get_item_count(struct udevice *dev, int id)
+{
+	return -ENOSYS;
+}
+
+static inline int sysinfo_get_data_by_index(struct udevice *dev, int id,
+					    int index, void **data,
+					    size_t *size)
+{
+	return -ENOSYS;
+}
+
 static inline int sysinfo_get(struct udevice **devp)
+{
+	return -ENOSYS;
+}
+
+static inline int sysinfo_get_and_detect(struct udevice **devp)
 {
 	return -ENOSYS;
 }

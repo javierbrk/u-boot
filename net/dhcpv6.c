@@ -29,6 +29,10 @@
 int updated_sol_max_rt_ms = SOL_MAX_RT_MS;
 /* state machine parameters/variables */
 struct dhcp6_sm_params sm_params;
+/* DHCPv6 all server IP6 address */
+const struct in6_addr dhcp_mcast_ip6 = DHCP6_MULTICAST_ADDR;
+/* IPv6 multicast ethernet address */
+const u8 net_dhcp6_mcast_ethaddr[6] = IPV6_ALL_NODE_ETH_ADDR(dhcp_mcast_ip6);
 
 static void dhcp6_state_machine(bool timeout, uchar *rx_pkt, unsigned int len);
 
@@ -124,7 +128,7 @@ static int dhcp6_add_option(int option_id, uchar *pkt)
 		break;
 	case DHCP6_OPTION_CLIENT_ARCH_TYPE:
 		client_arch_opt = (struct dhcp6_option_client_arch *)dhcp_option_start;
-		client_arch_opt->arch_type[num_client_arch++] = htons(CONFIG_DHCP6_PXE_CLIENTARCH);
+		client_arch_opt->arch_type[num_client_arch++] = htons(CONFIG_DHCP_PXE_CLIENTARCH);
 
 		opt_len = sizeof(__be16) * num_client_arch;
 		break;
@@ -171,7 +175,6 @@ static int dhcp6_add_option(int option_id, uchar *pkt)
  */
 static void dhcp6_send_solicit_packet(void)
 {
-	struct in6_addr dhcp_bcast_ip6;
 	int len = 0;
 	uchar *pkt;
 	uchar *dhcp_pkt_start_ptr;
@@ -191,7 +194,7 @@ static void dhcp6_send_solicit_packet(void)
 	pkt += dhcp6_add_option(DHCP6_OPTION_ELAPSED_TIME, pkt);
 	pkt += dhcp6_add_option(DHCP6_OPTION_IA_NA, pkt);
 	pkt += dhcp6_add_option(DHCP6_OPTION_ORO, pkt);
-	if (CONFIG_DHCP6_PXE_CLIENTARCH != 0xFF)
+	if (CONFIG_DHCP_PXE_CLIENTARCH != 0xFF)
 		pkt += dhcp6_add_option(DHCP6_OPTION_CLIENT_ARCH_TYPE, pkt);
 	pkt += dhcp6_add_option(DHCP6_OPTION_VENDOR_CLASS, pkt);
 	pkt += dhcp6_add_option(DHCP6_OPTION_NII, pkt);
@@ -200,9 +203,8 @@ static void dhcp6_send_solicit_packet(void)
 	len = pkt - dhcp_pkt_start_ptr;
 
 	/* send UDP packet to DHCP6 multicast address */
-	string_to_ip6(DHCP6_MULTICAST_ADDR, sizeof(DHCP6_MULTICAST_ADDR), &dhcp_bcast_ip6);
 	net_set_udp_handler(dhcp6_handler);
-	net_send_udp_packet6((uchar *)net_bcast_ethaddr, &dhcp_bcast_ip6,
+	net_send_udp_packet6((uchar *)net_dhcp6_mcast_ethaddr, (struct in6_addr *)&dhcp_mcast_ip6,
 			     PORT_DHCP6_S, PORT_DHCP6_C, len);
 }
 
@@ -218,7 +220,6 @@ static void dhcp6_send_solicit_packet(void)
  */
 static void dhcp6_send_request_packet(void)
 {
-	struct in6_addr dhcp_bcast_ip6;
 	int len = 0;
 	uchar *pkt;
 	uchar *dhcp_pkt_start_ptr;
@@ -243,7 +244,7 @@ static void dhcp6_send_request_packet(void)
 		memcpy(pkt, sm_params.server_uid.uid_ptr, sm_params.server_uid.uid_size);
 		pkt += sm_params.server_uid.uid_size;
 	}
-	if (CONFIG_DHCP6_PXE_CLIENTARCH != 0xFF)
+	if (CONFIG_DHCP_PXE_CLIENTARCH != 0xFF)
 		pkt += dhcp6_add_option(DHCP6_OPTION_CLIENT_ARCH_TYPE, pkt);
 	pkt += dhcp6_add_option(DHCP6_OPTION_VENDOR_CLASS, pkt);
 	pkt += dhcp6_add_option(DHCP6_OPTION_NII, pkt);
@@ -252,9 +253,8 @@ static void dhcp6_send_request_packet(void)
 	len = pkt - dhcp_pkt_start_ptr;
 
 	/* send UDP packet to DHCP6 multicast address */
-	string_to_ip6(DHCP6_MULTICAST_ADDR, strlen(DHCP6_MULTICAST_ADDR), &dhcp_bcast_ip6);
 	net_set_udp_handler(dhcp6_handler);
-	net_send_udp_packet6((uchar *)net_bcast_ethaddr, &dhcp_bcast_ip6,
+	net_send_udp_packet6((uchar *)net_dhcp6_mcast_ethaddr, (struct in6_addr *)&dhcp_mcast_ip6,
 			     PORT_DHCP6_S, PORT_DHCP6_C, len);
 }
 
@@ -339,6 +339,11 @@ static void dhcp6_parse_options(uchar *rx_pkt, unsigned int len)
 			break;
 		case DHCP6_OPTION_IA_TA:
 		case DHCP6_OPTION_IA_NA:
+			if (option_len < sizeof(u32)) {
+				debug("Invalid IA_NA/IA_TA option length\n");
+				break;
+			}
+
 			/* check the IA_ID */
 			if (*((u32 *)option_ptr) !=  htonl(sm_params.ia_id)) {
 				debug("IA_ID mismatch 0x%08x 0x%08x\n",
@@ -347,6 +352,10 @@ static void dhcp6_parse_options(uchar *rx_pkt, unsigned int len)
 			}
 
 			if (ntohs(option_hdr->option_id) == DHCP6_OPTION_IA_NA) {
+				if (option_len < 3 * sizeof(u32)) {
+					debug("Invalid IA_NA option length\n");
+					break;
+				}
 				/* skip past IA_ID/T1/T2 */
 				option_ptr += 3 * sizeof(u32);
 			} else if (ntohs(option_hdr->option_id) == DHCP6_OPTION_IA_TA) {
@@ -358,12 +367,20 @@ static void dhcp6_parse_options(uchar *rx_pkt, unsigned int len)
 			break;
 		case DHCP6_OPTION_STATUS_CODE:
 			debug("DHCP6_OPTION_STATUS_CODE FOUND\n");
+			if (option_len < sizeof(u16)) {
+				debug("Invalid status code option length\n");
+				break;
+			}
 			sm_params.rx_status.status_code = ntohs(*((u16 *)option_ptr));
 			debug("DHCP6 top-level status code %d\n", sm_params.rx_status.status_code);
 			debug("DHCP6 status message: %.*s\n", len, option_ptr + 2);
 			break;
 		case DHCP6_OPTION_SOL_MAX_RT:
 			debug("DHCP6_OPTION_SOL_MAX_RT FOUND\n");
+			if (option_len != sizeof(u32)) {
+				debug("Invalid SOL_MAX_RT option length\n");
+				break;
+			}
 			sol_max_rt_sec = ntohl(*((u32 *)option_ptr));
 
 			/* A DHCP client MUST ignore any SOL_MAX_RT option values that are less
@@ -377,6 +394,11 @@ static void dhcp6_parse_options(uchar *rx_pkt, unsigned int len)
 			break;
 		case DHCP6_OPTION_OPT_BOOTFILE_URL:
 			debug("DHCP6_OPTION_OPT_BOOTFILE_URL FOUND\n");
+			if (option_len >= sizeof(net_boot_file_name)) {
+				debug("Option length for BOOTFILE_URL is greater or equal than %zu. Skipping\n",
+				      sizeof(net_boot_file_name));
+				break;
+			}
 			copy_filename(net_boot_file_name, option_ptr, option_len + 1);
 			debug("net_boot_file_name: %s\n", net_boot_file_name);
 
@@ -389,6 +411,12 @@ static void dhcp6_parse_options(uchar *rx_pkt, unsigned int len)
 		case DHCP6_OPTION_OPT_BOOTFILE_PARAM:
 			if (IS_ENABLED(CONFIG_DHCP6_PXE_DHCP_OPTION)) {
 				debug("DHCP6_OPTION_OPT_BOOTFILE_PARAM FOUND\n");
+
+				if (option_len < sizeof(u16)) {
+					debug("Invalid BOOTFILE_PARAM option length\n");
+					break;
+				}
+
 				/* if CONFIG_DHCP6_PXE_DHCP_OPTION is set the PXE config file path
 				 * is contained in the first OPT_BOOTFILE_PARAM argument
 				 */
@@ -414,6 +442,10 @@ static void dhcp6_parse_options(uchar *rx_pkt, unsigned int len)
 			break;
 		case DHCP6_OPTION_PREFERENCE:
 			debug("DHCP6_OPTION_PREFERENCE FOUND\n");
+			if (option_len != 1) {
+				debug("Invalid preference option length\n");
+				break;
+			}
 			sm_params.rx_status.preference = *option_ptr;
 			break;
 		default:
@@ -473,8 +505,7 @@ static int dhcp6_check_advertise_packet(uchar *rx_pkt, unsigned int len)
 		 * server UID, save the new server UID and preference
 		 */
 		if (!sm_params.server_uid.uid_ptr ||
-		    (sm_params.server_uid.uid_ptr &&
-		    sm_params.server_uid.preference < sm_params.rx_status.preference)) {
+		    sm_params.server_uid.preference < sm_params.rx_status.preference) {
 			rx_uid_size = sm_params.rx_status.server_uid_size;
 			if (sm_params.server_uid.uid_ptr)
 				free(sm_params.server_uid.uid_ptr);

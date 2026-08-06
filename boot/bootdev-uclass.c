@@ -168,8 +168,10 @@ int bootdev_find_in_blk(struct udevice *dev, struct udevice *blk,
 		 */
 
 	/* if there are bootable partitions, scan only those */
-	} else if (iter->first_bootable >= 0 &&
+	} else if ((iter->flags & BOOTFLOWIF_ONLY_BOOTABLE) &&
+		   iter->first_bootable >= 0 &&
 		   (iter->first_bootable ? !info.bootable : iter->part != 1)) {
+		log_debug("Skipping non-bootable partition %d\n", iter->part);
 		return log_msg_ret("boot", -EINVAL);
 	} else {
 		ret = fs_set_blk_dev_with_part(desc, bflow->part);
@@ -211,10 +213,12 @@ void bootdev_list(bool probe)
 		       device_active(dev) ? '+' : ' ',
 		       ret ? simple_itoa(-ret) : "OK",
 		       dev_get_uclass_name(dev_get_parent(dev)), dev->name);
-		if (probe)
+		if (probe) {
 			ret = uclass_next_device_check(&dev);
-		else
-			ret = uclass_find_next_device(&dev);
+		} else {
+			uclass_find_next_device(&dev);
+			ret = 0;
+		}
 	}
 	printf("---  ------  ------  --------  ------------------\n");
 	printf("(%d bootdev%s)\n", i, i != 1 ? "s" : "");
@@ -562,13 +566,18 @@ int bootdev_get_bootflow(struct udevice *dev, struct bootflow_iter *iter,
 {
 	const struct bootdev_ops *ops = bootdev_get_ops(dev);
 
-	log_debug("->get_bootflow %s,%x=%p\n", dev->name, iter->part,
-		  ops->get_bootflow);
 	bootflow_init(bflow, dev, iter->method);
-	if (!ops->get_bootflow)
-		return default_get_bootflow(dev, iter, bflow);
 
-	return ops->get_bootflow(dev, iter, bflow);
+	if (ops && ops->get_bootflow) {
+		log_debug("->get_bootflow %s,%x=%p\n", dev->name, iter->part,
+			  ops->get_bootflow);
+
+		return ops->get_bootflow(dev, iter, bflow);
+	}
+
+	log_debug("->get_bootflow %s,%x is unset\n", dev->name, iter->part);
+
+	return default_get_bootflow(dev, iter, bflow);
 }
 
 int bootdev_next_label(struct bootflow_iter *iter, struct udevice **devp,
@@ -577,6 +586,9 @@ int bootdev_next_label(struct bootflow_iter *iter, struct udevice **devp,
 	struct udevice *dev;
 
 	log_debug("next\n");
+	if (iter->cur_label >= 0 && !iter->labels[iter->cur_label])
+		return log_msg_ret("fil", -ENODEV);
+
 	for (dev = NULL; !dev && iter->labels[++iter->cur_label];) {
 		const char *label = iter->labels[iter->cur_label];
 		int ret;
@@ -657,8 +669,6 @@ int bootdev_next_prio(struct bootflow_iter *iter, struct udevice **devp)
 							BOOTFLOWIF_SHOW);
 				log_debug("- bootdev_hunt_prio() ret %d\n",
 					  ret);
-				if (ret)
-					return log_msg_ret("hun", ret);
 			}
 		} else {
 			ret = device_probe(dev);

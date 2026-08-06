@@ -9,7 +9,6 @@
 #include <log.h>
 #include <asm/io.h>
 #include <errno.h>
-#include <asm/global_data.h>
 #include <asm/io.h>
 #include <asm/arch/ddr.h>
 #include <asm/arch/imx8mn_pins.h>
@@ -31,8 +30,6 @@
 #include <dm/device.h>
 #include <dm/uclass-internal.h>
 #include <dm/device-internal.h>
-
-DECLARE_GLOBAL_DATA_PTR;
 
 int spl_board_boot_device(enum boot_device boot_dev_spl)
 {
@@ -110,8 +107,6 @@ int board_early_init_f(void)
 {
 	/* Claiming pwm pins prevents LCD flicker during startup*/
 	imx_iomux_v3_setup_multiple_pads(pwm_pads, ARRAY_SIZE(pwm_pads));
-
-	init_uart_clk(1);
 
 	return 0;
 }

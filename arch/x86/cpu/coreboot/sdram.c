@@ -42,6 +42,8 @@ phys_addr_t board_get_usable_ram_top(phys_size_t total_size)
 			continue;
 
 		/* Filter memory over 4GB. */
+		if (start > 0xffffffffULL)
+			continue;
 		if (end > 0xffffffffULL)
 			end = 0x100000000ULL;
 		/* Skip this region if it's too small. */
@@ -89,8 +91,8 @@ int dram_init_banksize(void)
 			struct memrange *memrange = &lib_sysinfo.memrange[i];
 
 			if (memrange->type == CB_MEM_RAM) {
-				gd->bd->bi_dram[j].start = memrange->base;
-				gd->bd->bi_dram[j].size = memrange->size;
+				gd->dram[j].start = memrange->base;
+				gd->dram[j].size = memrange->size;
 				j++;
 				if (j >= CONFIG_NR_DRAM_BANKS)
 					break;

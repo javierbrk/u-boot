@@ -60,7 +60,7 @@ obj-$(CONFIG_IMX_RDC) += rdc-sema.o
 ifneq ($(CONFIG_XPL_BUILD),y)
 obj-$(CONFIG_IMX_BOOTAUX) += imx_bootaux.o
 endif
-obj-$(CONFIG_$(XPL_)SATA) += sata.o
+obj-$(CONFIG_$(PHASE_)SATA) += sata.o
 obj-$(CONFIG_IMX_HAB)    += hab.o
 obj-$(CONFIG_SYSCOUNTER_TIMER) += syscounter.o
 endif
@@ -80,6 +80,7 @@ endif
 ifneq ($(CONFIG_XPL_BUILD),y)
 obj-$(CONFIG_CMD_BMODE) += cmd_bmode.o
 obj-$(CONFIG_CMD_HDMIDETECT) += cmd_hdmidet.o
+obj-$(CONFIG_CMD_IMX_QB) += cmd_qb.o
 obj-$(CONFIG_CMD_DEKBLOB) += cmd_dek.o
 obj-$(CONFIG_CMD_NANDBCB) += cmd_nandbcb.o
 endif
@@ -223,6 +224,13 @@ endif
 
 ifeq ($(CONFIG_ARCH_IMX9)$(CONFIG_ARCH_IMX8ULP), y)
 
+ifneq ($(and $(CONFIG_BINMAN),$(or $(CONFIG_IMX95),$(CONFIG_IMX94),$(CONFIG_IMX952))),)
+SPL: spl/u-boot-spl.bin FORCE
+	$(call if_changed,mkimage)
+
+flash.bin: spl/u-boot-spl.bin FORCE
+	$(call if_changed,mkimage)
+else
 quiet_cmd_cpp_cfg_imx9_check = CHECK    $@
 cmd_cpp_cfg_imx9_check = $(CPP) $(cpp_flags) -D__ASSEMBLY__ -x c -o $@ $< && $(srctree)/tools/imx9_image.sh $@
 
@@ -243,6 +251,7 @@ u-boot-container.cfgout: $(IMX_CONTAINER_CFG) FORCE
 
 flash.bin: spl/u-boot-spl-ddr.bin container.cfgout FORCE
 	$(call if_changed,mkimage)
+endif
 endif
 
 else

@@ -110,7 +110,9 @@ static int rockchip_dram_init_banksize(void)
 	u8 i, j;
 
 	if (!IS_ENABLED(CONFIG_ROCKCHIP_RK3588) &&
-	    !IS_ENABLED(CONFIG_ROCKCHIP_RK3568))
+	    !IS_ENABLED(CONFIG_ROCKCHIP_RK3576) &&
+	    !IS_ENABLED(CONFIG_ROCKCHIP_RK3568) &&
+	    !IS_ENABLED(CONFIG_ROCKCHIP_RK3528))
 		return -ENOTSUPP;
 
 	if (!IS_ENABLED(CONFIG_ROCKCHIP_EXTERNAL_TPL))
@@ -169,7 +171,7 @@ static int rockchip_dram_init_banksize(void)
 
 	/*
 	 * Rockchip guaranteed DDR_MEM is ordered so no need to worry about
-	 * bi_dram order.
+	 * dram order.
 	 */
 	for (i = 0, j = 0; i < ddr_info->count; i++, j++) {
 		phys_size_t size = ddr_info->bank[(i + ddr_info->count)];
@@ -181,9 +183,9 @@ static int rockchip_dram_init_banksize(void)
 		 * BL31 (TF-A) reserves the first 2MB but DDR_MEM tag may not
 		 * have it, so force this space as reserved.
 		 */
-		if (start_addr < SZ_2M) {
-			size -= SZ_2M - start_addr;
-			start_addr = SZ_2M;
+		if (start_addr < CFG_SYS_SDRAM_BASE + SZ_2M) {
+			size -= CFG_SYS_SDRAM_BASE + SZ_2M - start_addr;
+			start_addr = CFG_SYS_SDRAM_BASE + SZ_2M;
 		}
 
 		/*
@@ -228,7 +230,7 @@ static int rockchip_dram_init_banksize(void)
 					return -EINVAL;
 				}
 
-				size -= rsrv_end - start_addr;
+				size -= rsrv_end - (start_addr - CFG_SYS_SDRAM_BASE);
 				start_addr = rsrv_end;
 				break;
 			}
@@ -259,8 +261,8 @@ static int rockchip_dram_init_banksize(void)
 				 * split the region in two, one for before the
 				 * reserved memory area and one for after.
 				 */
-				gd->bd->bi_dram[j].start = start_addr;
-				gd->bd->bi_dram[j].size = rsrv_start - start_addr;
+				gd->dram[j].start = start_addr;
+				gd->dram[j].size = rsrv_start - start_addr;
 
 				j++;
 
@@ -279,18 +281,33 @@ static int rockchip_dram_init_banksize(void)
 			return -ENOMEM;
 		}
 
-		gd->bd->bi_dram[j].start = start_addr;
-		gd->bd->bi_dram[j].size = size;
+		gd->dram[j].start = start_addr;
+		gd->dram[j].size = size;
 	}
 
 	return 0;
 }
 #endif
 
+__weak int rockchip_dram_init_banksize_fixup(struct bd_info *bd)
+{
+	return 0;
+}
+
+phys_addr_t board_get_usable_ram_top(phys_size_t total_size)
+{
+	/* Make sure U-Boot only uses the space below the 4G address boundary */
+	u64 usable_top = min_t(u64, CFG_SYS_SDRAM_BASE + SDRAM_MAX_SIZE, SZ_4G);
+
+	return (gd->ram_top > usable_top) ? usable_top : gd->ram_top;
+}
+
 int dram_init_banksize(void)
 {
-	size_t ram_top = (unsigned long)(gd->ram_size + CFG_SYS_SDRAM_BASE);
-	size_t top = min((unsigned long)ram_top, (unsigned long)(gd->ram_top));
+	/* Make sure first bank uses the space below the 4G address boundary */
+	u64 usable_top = min_t(u64, CFG_SYS_SDRAM_BASE + SDRAM_MAX_SIZE, SZ_4G);
+	size_t ram_top = (unsigned long)(CFG_SYS_SDRAM_BASE + gd->ram_size);
+	size_t top = min((unsigned long)ram_top, (unsigned long)(usable_top));
 
 #ifdef CONFIG_ARM64
 	int ret = rockchip_dram_init_banksize();
@@ -301,16 +318,16 @@ int dram_init_banksize(void)
 	debug("Couldn't use ATAG (%d) to detect DDR layout, falling back...\n",
 	      ret);
 
-	/* Reserve 0x200000 for ATF bl31 */
-	gd->bd->bi_dram[0].start = 0x200000;
-	gd->bd->bi_dram[0].size = top - gd->bd->bi_dram[0].start;
+	/* Reserve 2M for ATF bl31 */
+	gd->dram[0].start = CFG_SYS_SDRAM_BASE + SZ_2M;
+	gd->dram[0].size = top - gd->dram[0].start;
 
 	/* Add usable memory beyond the blob of space for peripheral near 4GB */
 	if (ram_top > SZ_4G && top < SZ_4G) {
-		gd->bd->bi_dram[1].start = SZ_4G;
-		gd->bd->bi_dram[1].size = ram_top - gd->bd->bi_dram[1].start;
+		gd->dram[1].start = SZ_4G;
+		gd->dram[1].size = ram_top - gd->dram[1].start;
 	} else if (ram_top > SZ_4G && top == SZ_4G) {
-		gd->bd->bi_dram[0].size = ram_top - gd->bd->bi_dram[0].start;
+		gd->dram[0].size = ram_top - gd->dram[0].start;
 	}
 #else
 #ifdef CONFIG_SPL_OPTEE_IMAGE
@@ -320,27 +337,42 @@ int dram_init_banksize(void)
 			TRUST_PARAMETER_OFFSET);
 
 	if (tos_parameter->tee_mem.flags == 1) {
-		gd->bd->bi_dram[0].start = CFG_SYS_SDRAM_BASE;
-		gd->bd->bi_dram[0].size = tos_parameter->tee_mem.phy_addr
+		gd->dram[0].start = CFG_SYS_SDRAM_BASE;
+		gd->dram[0].size = tos_parameter->tee_mem.phy_addr
 					- CFG_SYS_SDRAM_BASE;
-		gd->bd->bi_dram[1].start = tos_parameter->tee_mem.phy_addr +
+		gd->dram[1].start = tos_parameter->tee_mem.phy_addr +
 					tos_parameter->tee_mem.size;
-		gd->bd->bi_dram[1].size = top - gd->bd->bi_dram[1].start;
+		gd->dram[1].size = top - gd->dram[1].start;
 	} else {
-		gd->bd->bi_dram[0].start = CFG_SYS_SDRAM_BASE;
-		gd->bd->bi_dram[0].size = 0x8400000;
+		gd->dram[0].start = CFG_SYS_SDRAM_BASE;
+		gd->dram[0].size = 0x8400000;
 		/* Reserve 32M for OPTEE with TA */
-		gd->bd->bi_dram[1].start = CFG_SYS_SDRAM_BASE
-					+ gd->bd->bi_dram[0].size + 0x2000000;
-		gd->bd->bi_dram[1].size = top - gd->bd->bi_dram[1].start;
+		gd->dram[1].start = CFG_SYS_SDRAM_BASE
+					+ gd->dram[0].size + 0x2000000;
+		gd->dram[1].size = top - gd->dram[1].start;
 	}
 #else
-	gd->bd->bi_dram[0].start = CFG_SYS_SDRAM_BASE;
-	gd->bd->bi_dram[0].size = top - gd->bd->bi_dram[0].start;
+	gd->dram[0].start = CFG_SYS_SDRAM_BASE;
+	gd->dram[0].size = top - gd->dram[0].start;
 #endif
 #endif
 
-	return 0;
+	return rockchip_dram_init_banksize_fixup(gd->bd);
+}
+
+u8 rockchip_sdram_type(phys_addr_t reg)
+{
+	u32 dram_type, version;
+	u32 sys_reg2 = readl(reg);
+	u32 sys_reg3 = readl(reg + 4);
+
+	dram_type = (sys_reg2 >> SYS_REG_DDRTYPE_SHIFT) & SYS_REG_DDRTYPE_MASK;
+	version = (sys_reg3 >> SYS_REG_VERSION_SHIFT) & SYS_REG_VERSION_MASK;
+	if (version >= 3)
+		dram_type |= ((sys_reg3 >> SYS_REG_EXTEND_DDRTYPE_SHIFT) &
+			      SYS_REG_EXTEND_DDRTYPE_MASK) << 3;
+
+	return dram_type;
 }
 
 size_t rockchip_sdram_size(phys_addr_t reg)
@@ -484,12 +516,4 @@ int dram_init(void)
 	      (unsigned long)ram.base, (unsigned long)ram.size);
 
 	return 0;
-}
-
-phys_addr_t board_get_usable_ram_top(phys_size_t total_size)
-{
-	/* Make sure U-Boot only uses the space below the 4G address boundary */
-	u64 top = min_t(u64, CFG_SYS_SDRAM_BASE + SDRAM_MAX_SIZE, SZ_4G);
-
-	return (gd->ram_top > top) ? top : gd->ram_top;
 }

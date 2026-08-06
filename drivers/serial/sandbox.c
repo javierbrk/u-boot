@@ -14,12 +14,9 @@
 #include <os.h>
 #include <serial.h>
 #include <video.h>
-#include <asm/global_data.h>
 #include <linux/compiler.h>
 #include <asm/serial.h>
 #include <asm/state.h>
-
-DECLARE_GLOBAL_DATA_PTR;
 
 static size_t _sandbox_serial_written = 1;
 static bool sandbox_serial_enabled = true;
@@ -63,7 +60,7 @@ static int sandbox_serial_probe(struct udevice *dev)
 
 	if (state->term_raw != STATE_TERM_RAW)
 		disable_ctrlc(1);
-	membuff_init(&priv->buf, priv->serial_buf, sizeof(priv->serial_buf));
+	membuf_init(&priv->buf, priv->serial_buf, sizeof(priv->serial_buf));
 
 	return 0;
 }
@@ -138,15 +135,15 @@ static int sandbox_serial_pending(struct udevice *dev, bool input)
 		return 0;
 
 	os_usleep(100);
-	avail = membuff_putraw(&priv->buf, 100, false, &data);
+	avail = membuf_putraw(&priv->buf, 100, false, &data);
 	if (!avail)
 		return 1;	/* buffer full */
 
 	count = os_read(0, data, avail);
 	if (count > 0)
-		membuff_putraw(&priv->buf, count, true, &data);
+		membuf_putraw(&priv->buf, count, true, &data);
 
-	return membuff_avail(&priv->buf);
+	return membuf_avail(&priv->buf);
 }
 
 static int sandbox_serial_getc(struct udevice *dev)
@@ -156,7 +153,7 @@ static int sandbox_serial_getc(struct udevice *dev)
 	if (!sandbox_serial_pending(dev, true))
 		return -EAGAIN;	/* buffer empty */
 
-	return membuff_getbyte(&priv->buf);
+	return membuf_getbyte(&priv->buf);
 }
 
 #ifdef CONFIG_DEBUG_UART_SANDBOX

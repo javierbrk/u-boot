@@ -238,18 +238,21 @@ static int acm_bind(struct usb_configuration *c, struct usb_function *f)
 		return -ENODEV;
 
 	f_acm->ep_in = ep;
+	ep->driver_data = c->cdev; /* claim */
 
 	ep = usb_ep_autoconfig(gadget, &acm_fs_out_desc);
 	if (!ep)
 		return -ENODEV;
 
 	f_acm->ep_out = ep;
+	ep->driver_data = c->cdev; /* claim */
 
 	ep = usb_ep_autoconfig(gadget, &acm_fs_notify_desc);
 	if (!ep)
 		return -ENODEV;
 
 	f_acm->ep_notify = ep;
+	ep->driver_data = c->cdev; /* claim */
 
 	if (gadget_is_dualspeed(gadget)) {
 		/* Assume endpoint addresses are the same for both speeds */
@@ -545,13 +548,11 @@ static int acm_add(struct usb_configuration *c)
 
 	status = udc_device_get_by_index(0, &f_acm->udc);
 	if (status)
-		return status;
+		goto err;
 
 	status = usb_add_function(c, &f_acm->usb_function);
-	if (status) {
-		free(f_acm);
-		return status;
-	}
+	if (status)
+		goto err;
 
 	buf_init(&f_acm->rx_buf, 2048);
 	buf_init(&f_acm->tx_buf, 2048);
@@ -559,6 +560,10 @@ static int acm_add(struct usb_configuration *c)
 	if (!default_acm_function)
 		default_acm_function = f_acm;
 
+	return 0;
+
+err:
+	free(f_acm);
 	return status;
 }
 
@@ -660,6 +665,7 @@ static int acm_stdio_stop(struct stdio_dev *dev)
 {
 	g_dnl_unregister();
 	g_dnl_clear_detach();
+	dev->priv = NULL;
 
 	return 0;
 }

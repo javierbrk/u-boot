@@ -7,7 +7,6 @@
 #include <dm.h>
 #include <malloc.h>
 #include <power-domain-uclass.h>
-#include <asm/global_data.h>
 #include <asm/io.h>
 #include <asm/mach-imx/sys_proto.h>
 #include <dm/device-internal.h>
@@ -21,8 +20,6 @@
 #include <dt-bindings/power/imx8mn-power.h>
 #include <dt-bindings/power/imx8mp-power.h>
 #include <dt-bindings/power/imx8mq-power.h>
-
-DECLARE_GLOBAL_DATA_PTR;
 
 #define GPC_PGC_CPU_MAPPING			0x0ec
 #define IMX8MP_GPC_PGC_CPU_MAPPING		0x1cc
@@ -40,6 +37,7 @@ DECLARE_GLOBAL_DATA_PTR;
 #define IMX8MN_MIPI_A53_DOMAIN			BIT(2)
 
 #define IMX8MP_HSIOMIX_A53_DOMAIN		BIT(19)
+#define IMX8MP_MEDIAMIX_A53_DOMAIN		BIT(12)
 #define IMX8MP_USB2_PHY_A53_DOMAIN		BIT(5)
 #define IMX8MP_USB1_PHY_A53_DOMAIN		BIT(4)
 #define IMX8MP_PCIE_PHY_A53_DOMAIN		BIT(3)
@@ -63,6 +61,7 @@ DECLARE_GLOBAL_DATA_PTR;
 #define IMX8MN_MIPI_SW_Pxx_REQ			BIT(0)
 
 #define IMX8MP_HSIOMIX_Pxx_REQ			BIT(17)
+#define IMX8MP_MEDIAMIX_Pxx_REQ                 BIT(10)
 #define IMX8MP_USB2_PHY_Pxx_REQ			BIT(3)
 #define IMX8MP_USB1_PHY_Pxx_REQ			BIT(2)
 #define IMX8MP_PCIE_PHY_SW_Pxx_REQ		BIT(1)
@@ -80,6 +79,9 @@ DECLARE_GLOBAL_DATA_PTR;
 
 #define IMX8MP_HSIOMIX_PWRDNACKN		BIT(28)
 #define IMX8MP_HSIOMIX_PWRDNREQN		BIT(12)
+
+#define IMX8MP_MEDIAMIX_PWRDNACKN		BIT(30)
+#define IMX8MP_MEDIAMIX_PWRDNREQN		BIT(14)
 
 /*
  * The PGC offset values in Reference Manual
@@ -101,6 +103,7 @@ DECLARE_GLOBAL_DATA_PTR;
 #define IMX8MP_PGC_PCIE			13
 #define IMX8MP_PGC_USB1			14
 #define IMX8MP_PGC_USB2			15
+#define IMX8MP_PGC_MEDIAMIX		22
 #define IMX8MP_PGC_HSIOMIX		29
 
 #define GPC_PGC_CTRL(n)			(0x800 + (n) * 0x40)
@@ -303,6 +306,17 @@ static const struct imx_pgc_domain imx8mp_pgc_domains[] = {
 		.pgc = BIT(IMX8MP_PGC_HSIOMIX),
 		.keep_clocks = true,
 	},
+
+	[IMX8MP_POWER_DOMAIN_MEDIAMIX] = {
+		.bits = {
+			.pxx = IMX8MP_MEDIAMIX_Pxx_REQ,
+			.map = IMX8MP_MEDIAMIX_A53_DOMAIN,
+			.hskreq = IMX8MP_MEDIAMIX_PWRDNREQN,
+			.hskack = IMX8MP_MEDIAMIX_PWRDNACKN,
+		},
+		.pgc = BIT(IMX8MP_PGC_MEDIAMIX),
+		.keep_clocks = true,
+	},
 };
 
 static const struct imx_pgc_regs imx8mp_pgc_regs = {
@@ -451,6 +465,8 @@ out_clk_disable:
 static int imx8m_power_domain_of_xlate(struct power_domain *power_domain,
 				      struct ofnode_phandle_args *args)
 {
+	power_domain->id = 0;
+
 	return 0;
 }
 
@@ -460,7 +476,7 @@ static int imx8m_power_domain_bind(struct udevice *dev)
 	const char *name;
 	int ret = 0;
 
-	ofnode_for_each_subnode(subnode, dev_ofnode(dev)) {
+	dev_for_each_subnode(subnode, dev) {
 		/* Bind the subnode to this driver */
 		name = ofnode_get_name(subnode);
 
@@ -489,7 +505,11 @@ static int imx8m_power_domain_bind(struct udevice *dev)
 static int imx8m_power_domain_probe(struct udevice *dev)
 {
 	struct imx8m_power_domain_plat *pdata = dev_get_plat(dev);
+	struct power_domain_plat *plat = dev_get_uclass_plat(dev);
 	int ret;
+
+	/* Every subdomain has its own device node */
+	plat->subdomains = 1;
 
 	/* Nothing to do for non-"power-domain" driver instances. */
 	if (!strstr(dev->name, "power-domain"))
@@ -511,7 +531,7 @@ static int imx8m_power_domain_of_to_plat(struct udevice *dev)
 	struct imx_pgc_domain_data *domain_data =
 		(struct imx_pgc_domain_data *)dev_get_driver_data(dev);
 
-	pdata->resource_id = ofnode_read_u32_default(dev_ofnode(dev), "reg", -1);
+	pdata->resource_id = dev_read_u32_default(dev, "reg", -1);
 	pdata->domain = &domain_data->domains[pdata->resource_id];
 	pdata->regs = domain_data->pgc_regs;
 	pdata->base = dev_read_addr_ptr(dev->parent);
@@ -538,7 +558,7 @@ static const struct udevice_id imx8m_power_domain_ids[] = {
 	{ }
 };
 
-struct power_domain_ops imx8m_power_domain_ops = {
+static const struct power_domain_ops imx8m_power_domain_ops = {
 	.on = imx8m_power_domain_on,
 	.off = imx8m_power_domain_off,
 	.of_xlate = imx8m_power_domain_of_xlate,

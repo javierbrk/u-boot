@@ -83,7 +83,7 @@
 #include <cli.h>
 #include <cli_hush.h>
 #include <command.h>        /* find_cmd */
-#include <asm/global_data.h>
+#include <vsprintf.h>
 #endif
 #ifndef __U_BOOT__
 #include <ctype.h>     /* isalpha, isdigit */
@@ -124,8 +124,6 @@
 #endif
 
 #ifdef __U_BOOT__
-DECLARE_GLOBAL_DATA_PTR;
-
 #define EXIT_SUCCESS 0
 #define EOF -1
 #define syntax() syntax_err()
@@ -1028,8 +1026,10 @@ static void get_user_input(struct in_str *i)
 	  puts("\nTimeout waiting for command\n");
 #  ifdef CONFIG_RESET_TO_RETRY
 	  do_reset(NULL, 0, 0, NULL);
-#  else
-#	error "This currently only works with CONFIG_RESET_TO_RETRY enabled"
+#  elif IS_ENABLED(CONFIG_RETRY_BOOTCMD)
+	strcpy(console_buffer, "run bootcmd\n");
+# else
+#	error "This only works with CONFIG_RESET_TO_RETRY or CONFIG_BOOT_RETRY_COMMAND enabled"
 #  endif
 	}
 #endif
@@ -3626,7 +3626,13 @@ static char *make_string(char **inp, int *nonnull)
 		noeval = 1;
 	for (n = 0; inp[n]; n++) {
 		p = insert_var_value_sub(inp[n], noeval);
-		str = xrealloc(str, (len + strlen(p) + (2 * nonnull[n])));
+		char *new_str = xrealloc(str, (len + strlen(p) + (2 * nonnull[n])));
+		if (!new_str) {
+			free(str);
+			if (p != inp[n]) free(p);
+			return NULL;
+		}
+		str = new_str;
 		if (n) {
 			strcat(str, " ");
 		} else {

@@ -177,8 +177,10 @@ static int sdhci_transfer_data(struct sdhci_host *host, struct mmc_data *data)
 	} while (!(stat & SDHCI_INT_DATA_END));
 
 #if (CONFIG_IS_ENABLED(MMC_SDHCI_SDMA) || CONFIG_IS_ENABLED(MMC_SDHCI_ADMA))
-	dma_unmap_single(host->start_addr, data->blocks * data->blocksize,
-			 mmc_get_dma_dir(data));
+	if (host->flags & USE_DMA) {
+		dma_unmap_single(host->start_addr, data->blocks * data->blocksize,
+				 mmc_get_dma_dir(data));
+	}
 #endif
 
 	return 0;
@@ -213,7 +215,7 @@ static int sdhci_send_command(struct mmc *mmc, struct mmc_cmd *cmd,
 	u32 mask, flags, mode = 0;
 	unsigned int time = 0;
 	int mmc_dev = mmc_get_blk_desc(mmc)->devnum;
-	ulong start = get_timer(0);
+	ulong start;
 
 	host->start_addr = 0;
 	/* Timeout unit - ms */
@@ -547,9 +549,9 @@ void sdhci_set_uhs_timing(struct sdhci_host *host)
 	sdhci_writew(host, reg, SDHCI_HOST_CONTROL2);
 }
 
-static void sdhci_set_voltage(struct sdhci_host *host)
+void sdhci_set_voltage(struct sdhci_host *host)
 {
-	if (IS_ENABLED(CONFIG_MMC_IO_VOLTAGE)) {
+	if (CONFIG_IS_ENABLED(MMC_IO_VOLTAGE)) {
 		struct mmc *mmc = (struct mmc *)host->mmc;
 		u32 ctrl;
 
@@ -731,7 +733,8 @@ static int sdhci_init(struct mmc *mmc)
 	 */
 	host->force_align_buffer = true;
 #else
-	if (host->quirks & SDHCI_QUIRK_32BIT_DMA_ADDR) {
+	if ((host->quirks & SDHCI_QUIRK_32BIT_DMA_ADDR) &&
+	    !host->align_buffer) {
 		host->align_buffer = memalign(8, 512 * 1024);
 		if (!host->align_buffer) {
 			log_err("Aligned buffer alloc failed\n");

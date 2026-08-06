@@ -31,10 +31,9 @@ config BOARD_SPECIFIC_OPTIONS # dummy
 	imply RISCV_TIMER
 	imply SPL_RISCV_ACLINT
 	imply CMD_CPU
-	imply SPL_CPU_SUPPORT
+	imply SPL_CPU
 	imply SPL_SMP
 	imply SPL_MMC
 	imply SMP
-	imply SPL_RISCV_MMODE
 
 endif

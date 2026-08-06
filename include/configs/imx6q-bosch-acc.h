@@ -42,20 +42,7 @@
 	"env_persisted=0\0" \
 	"env_persist=if test ${env_persisted} != 1; " \
 		"then env set env_persisted 1; run save_env; fi;\0" \
-	"save_env=env save; env save\0" \
-	"altbootcmd=run handle_ustate; run switch_bootset; run save_env; run bootcmd\0"
-
-#define CFG_ENV_FLAGS_LIST_STATIC \
-	"bootset:bw," \
-	"clone_pending:bw," \
-	"endurance_test:bw," \
-	"env_persisted:bw," \
-	"factory_reset:bw," \
-	"fdtcontroladdr:xw," \
-	"fitpart:dw," \
-	"mmcpart:dw," \
-	"production:bw," \
-	"ustate:dw"
+	"save_env=env save; env save\0"
 
 #else
 /* SD Card boot */

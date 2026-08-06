@@ -123,8 +123,7 @@ void efi_carve_out_dt_rsv(void *fdt)
 			    fdtdec_get_is_enabled(fdt, subnode)) {
 				bool nomap;
 
-				nomap = !!fdt_getprop(fdt, subnode, "no-map",
-						      NULL);
+				nomap = fdtdec_get_bool(fdt, subnode, "no-map");
 				efi_reserve_memory(fdt_addr, fdt_size, nomap);
 			}
 			subnode = fdt_next_subnode(fdt, subnode);
@@ -168,7 +167,7 @@ efi_dt_fixup(struct efi_dt_fixup_protocol *this, void *dtb,
 		/* Check size */
 		required_size = fdt_off_dt_strings(dtb) +
 				fdt_size_dt_strings(dtb) +
-				0x3000;
+				CONFIG_SYS_FDT_PAD;
 		total_size = fdt_totalsize(dtb);
 		if (required_size < total_size)
 			required_size = total_size;

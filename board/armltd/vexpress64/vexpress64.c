@@ -12,7 +12,6 @@
 #include <errno.h>
 #include <net.h>
 #include <netdev.h>
-#include <asm/global_data.h>
 #include <asm/io.h>
 #include <linux/compiler.h>
 #include <linux/sizes.h>
@@ -23,8 +22,6 @@
 #include <virtio_types.h>
 #include <virtio.h>
 #endif
-
-DECLARE_GLOBAL_DATA_PTR;
 
 static const struct pl01x_serial_plat serial_plat = {
 	.base = V2M_UART0,
@@ -100,7 +97,9 @@ int dram_init_banksize(void)
  * Push the variable into the .data section so that it
  * does not get cleared later.
  */
+#ifdef CONFIG_OF_HAS_PRIOR_STAGE
 unsigned long __section(".data") prior_stage_fdt_address[2];
+#endif
 
 #ifdef CONFIG_OF_BOARD
 
@@ -151,6 +150,7 @@ static phys_addr_t find_dtb_in_nor_flash(const char *partname)
 }
 #endif
 
+#ifdef CONFIG_OF_HAS_PRIOR_STAGE
 /*
  * Filter for a valid DTB, as TF-A happens to provide a pointer to some
  * data structure using the DTB format, which we cannot use.
@@ -201,11 +201,7 @@ int board_fdt_blob_setup(void **fdtp)
 	return -ENXIO;
 }
 #endif
-
-/* Actual reset is done via PSCI. */
-void reset_cpu(void)
-{
-}
+#endif
 
 /*
  * Board specific ethernet initialization routine.

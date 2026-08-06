@@ -11,6 +11,8 @@
 
 #include <linux/bitops.h>
 
+struct spinand_info;
+
 /* SPI mode flags */
 #define SPI_CPHA	BIT(0)	/* clock phase (1 = SPI_CLOCK_PHASE_SECOND) */
 #define SPI_CPOL	BIT(1)	/* clock polarity (1 = SPI_POLARITY_HIGH) */
@@ -75,11 +77,13 @@ struct dm_spi_bus {
  * @cs:		Chip select number (0..n-1)
  * @max_hz:	Maximum bus speed that this slave can tolerate
  * @mode:	SPI mode to use for this device (see SPI mode flags)
+ * @wordlen:	Word length in bits to use for this device
  */
 struct dm_spi_slave_plat {
 	unsigned int cs[SPI_CS_CNT_MAX];
 	uint max_hz;
 	uint mode;
+	unsigned int wordlen;
 };
 
 /**
@@ -157,6 +161,7 @@ struct spi_slave {
 	unsigned int max_write_size;
 	void *memory_map;
 
+	u8 bits_per_word;
 	u8 flags;
 #define SPI_XFER_BEGIN		BIT(0)	/* Assert CS before transfer */
 #define SPI_XFER_END		BIT(1)	/* Deassert CS after transfer */
@@ -537,6 +542,16 @@ struct dm_spi_ops {
 	 */
 	int (*get_mmap)(struct udevice *dev, ulong *map_basep,
 			uint *map_sizep, uint *offsetp);
+
+	/**
+	 * setup_for_spinand() - Setup the SPI for attached SPI NAND
+	 *
+	 * @dev:	The SPI flash slave device
+	 * @spinand_info: The SPI NAND info to configure for
+	 * @return 0 if OK, -ve value on error
+	 */
+	int (*setup_for_spinand)(struct spi_slave *slave,
+				 const struct spinand_info *spinand_info);
 };
 
 struct dm_spi_emul_ops {
@@ -646,17 +661,6 @@ int spi_chip_select(struct udevice *slave);
 int spi_find_chip_select(struct udevice *bus, int cs, struct udevice **devp);
 
 /**
- * spi_slave_of_to_plat() - decode standard SPI platform data
- *
- * This decodes the speed and mode for a slave from a device tree node
- *
- * @blob:	Device tree blob
- * @node:	Node offset to read from
- * @plat:	Place to put the decoded information
- */
-int spi_slave_of_to_plat(struct udevice *dev, struct dm_spi_slave_plat *plat);
-
-/**
  * spi_cs_info() - Check information on a chip select
  *
  * This checks a particular chip select on a bus to see if it has a device
@@ -716,6 +720,18 @@ int dm_spi_claim_bus(struct udevice *dev);
  * @slave:	The SPI slave device
  */
 void dm_spi_release_bus(struct udevice *dev);
+
+/**
+ * Set the word length for SPI transactions
+ *
+ * Set the word length (number of bits per word) for SPI transactions.
+ *
+ * @slave:	The SPI slave
+ * @wordlen:	The number of bits in a word
+ *
+ * Returns: 0 on success, -1 on failure.
+ */
+int dm_spi_set_wordlen(struct udevice *dev, unsigned int wordlen);
 
 /**
  * SPI transfer

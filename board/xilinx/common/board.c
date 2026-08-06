@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0+
 /*
  * (C) Copyright 2014 - 2022, Xilinx, Inc.
- * (C) Copyright 2022 - 2023, Advanced Micro Devices, Inc.
+ * (C) Copyright 2022 - 2025, Advanced Micro Devices, Inc.
  *
  * Michal Simek <michal.simek@amd.com>
  */
@@ -9,12 +9,17 @@
 #include <efi.h>
 #include <efi_loader.h>
 #include <env.h>
+#include <fwu.h>
 #include <image.h>
 #include <init.h>
 #include <jffs2/load_kernel.h>
 #include <log.h>
+#include <asm/io.h>
 #include <asm/global_data.h>
 #include <asm/sections.h>
+#if defined(CONFIG_ARCH_VERSAL) || defined(CONFIG_ARCH_VERSAL2)
+#include <asm/arch/hardware.h>
+#endif
 #include <dm/uclass.h>
 #include <i2c.h>
 #include <linux/sizes.h>
@@ -29,6 +34,8 @@
 #include <rng.h>
 #include <slre.h>
 #include <soc.h>
+#include <zynqmp_firmware.h>
+#include <linux/bitfield.h>
 #include <linux/ctype.h>
 #include <linux/kernel.h>
 #include <u-boot/uuid.h>
@@ -69,6 +76,8 @@ struct efi_capsule_update_info update_info = {
 #define EEPROM_HDR_ETH_ALEN		ETH_ALEN
 #define EEPROM_HDR_UUID_LEN		16
 
+#define EEPROM_FRU_READ_RETRY		5
+
 struct xilinx_board_description {
 	u32 header;
 	char manufacturer[EEPROM_HDR_MANUFACTURER_LEN + 1];
@@ -80,7 +89,7 @@ struct xilinx_board_description {
 };
 
 static int highest_id = -1;
-static struct xilinx_board_description *board_info;
+static struct xilinx_board_description *board_info __section(".data");
 
 #define XILINX_I2C_DETECTION_BITS	sizeof(struct fru_common_hdr)
 
@@ -206,8 +215,14 @@ static int xilinx_read_eeprom_fru(struct udevice *dev, char *name,
 	debug("%s: I2C EEPROM read pass data at %p\n", __func__,
 	      fru_content);
 
-	ret = dm_i2c_read(dev, 0, (uchar *)fru_content,
-			  eeprom_size);
+	i = 0;
+	do {
+		ret = dm_i2c_read(dev, 0, (uchar *)fru_content,
+				  eeprom_size);
+		if (!ret)
+			break;
+	} while (++i < EEPROM_FRU_READ_RETRY && ret == -ETIMEDOUT);
+
 	if (ret) {
 		debug("%s: I2C EEPROM read failed\n", __func__);
 		goto end;
@@ -468,6 +483,9 @@ int board_late_init_xilinx(void)
 	ret |= env_set_addr("bootm_size", (void *)bootm_size);
 
 	for (id = 0; id <= highest_id; id++) {
+		if (!board_info)
+			break;
+
 		desc = &board_info[id];
 		if (desc && desc->header == EEPROM_HEADER_MAGIC) {
 			if (desc->manufacturer[0])
@@ -496,8 +514,7 @@ int board_late_init_xilinx(void)
 				ret |= env_set_by_index("uuid", id, uuid);
 			}
 
-			if (!(CONFIG_IS_ENABLED(NET) ||
-			      CONFIG_IS_ENABLED(NET_LWIP)))
+			if (!CONFIG_IS_ENABLED(NET))
 				continue;
 
 			for (i = 0; i < EEPROM_HDR_NO_OF_MAC_ADDR; i++) {
@@ -706,6 +723,141 @@ phys_addr_t board_get_usable_ram_top(phys_size_t total_size)
 		reg = gd->ram_top - size;
 
 	return reg + size;
+}
+#endif
+
+#if defined(CONFIG_FWU_MULTI_BANK_UPDATE)
+
+#if defined(CONFIG_ARCH_VERSAL) || defined(CONFIG_ARCH_VERSAL2)
+/*
+ * The Versal and Versal Gen 2 PMC Global pggs4 register contains below
+ * information in each byte as:
+ *
+ * Byte[3]: Magic number
+ * Byte[2]: Boot counter value
+ * Byte[1]: Boot partition value - boot index
+ * Byte[0]: Rollback counter value
+ */
+
+#define MAGIC_NUM	0x1D
+#define MAGIC_MASK	GENMASK(31, 24)
+#define BOOTINDEX_MASK	GENMASK(15, 8)
+
+static int plat_get_boot_index(void)
+{
+	u32 val;
+
+	if (IS_ENABLED(CONFIG_ZYNQMP_FIRMWARE))
+		val = zynqmp_pm_get_pmc_global_pggs_reg(PMC_GLOBAL_PGGS4_REG);
+	else
+		val = readl(PMC_GLOBAL_PGGS4_REG);
+
+	if (FIELD_GET(MAGIC_MASK, val) != MAGIC_NUM) {
+		log_err("FWU requires PMC magic number 0x%x\n", MAGIC_NUM);
+		return -EINVAL;
+	}
+
+	return FIELD_GET(BOOTINDEX_MASK, val);
+}
+#endif
+
+int fwu_plat_get_alt_num(struct udevice __always_unused *dev,
+			 efi_guid_t *image_id, u8 *alt_num)
+{
+	int ret;
+
+	ret = fwu_mtd_get_alt_num(image_id, alt_num, "nor0");
+	debug("%s: return %d\n", __func__, ret);
+
+	return ret;
+}
+
+void fwu_plat_get_bootidx(uint *boot_idx)
+{
+	int ret;
+	u32 active_idx;
+
+	ret = fwu_get_active_index(&active_idx);
+	if (ret < 0)
+		printf("%s: failed to read active index\n", __func__);
+
+	ret = plat_get_boot_index();
+	if (ret < 0) {
+		*boot_idx = 0;
+		printf("%s: failed and setup boot index to 0\n", __func__);
+	} else {
+		*boot_idx = ret;
+	}
+
+	debug("%s: boot_idx: %d, active_idx: %d\n",
+	      __func__, *boot_idx, active_idx);
+}
+#endif
+
+#if IS_ENABLED(CONFIG_BOARD_RNG_SEED)
+/* Use hardware rng to seed Linux random. */
+__weak int board_rng_seed(struct abuf *buf)
+{
+	struct udevice *dev;
+	ulong len = 64;
+	u64 *data;
+
+	if (uclass_get_device(UCLASS_RNG, 0, &dev) || !dev) {
+		printf("No RNG device\n");
+		return -ENODEV;
+	}
+
+	data = malloc(len);
+	if (!data) {
+		printf("Out of memory\n");
+		return -ENOMEM;
+	}
+
+	if (dm_rng_read(dev, data, len)) {
+		printf("Reading RNG failed\n");
+		free(data);
+		return -EIO;
+	}
+
+	abuf_init_set(buf, data, len);
+
+	return 0;
+}
+#endif
+
+#if defined(CONFIG_FWU_MULTI_BANK_UPDATE)
+int fwu_platform_hook(struct udevice *dev, struct fwu_data *data)
+{
+	/* Note: The FWU metadata is an unsecure piece of data, as
+	 * highlighted by the spec, and there is no way to ascertain
+	 * that it has not been tampered with in a malicious manner.
+	 * U-Boot OTOH can be part of a trusted boot chain, where the
+	 * U-Boot image has been verified before being booted. So,
+	 * although this does remove issues that might crop up with
+	 * manual mismatches, still need to consider the fact that
+	 * the FWU mdata is not a secure piece of data.
+
+	 * And this is a not real problem with Xilinx platforms because
+	 * actually it is only providing reference stack.
+	 */
+
+	struct fwu_image_entry *img_entry = &data->fwu_images[0];
+
+	/* Copy image type GUID */
+	memcpy(&fw_images[0].image_type_id, &img_entry->image_type_guid, 16);
+
+	if (IS_ENABLED(CONFIG_EFI_ESRT)) {
+		efi_status_t ret;
+
+		/* Rebuild the ESRT to reflect any updated FW images. */
+		ret = efi_esrt_populate();
+		if (ret != EFI_SUCCESS) {
+			log_warning("ESRT update failed\n");
+			return ret;
+		}
+	}
+
+	return 0;
 }
 
 #endif

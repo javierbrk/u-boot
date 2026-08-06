@@ -5,11 +5,8 @@
  */
 
 #include <asm/armv8/mmu.h>
-#include <asm/global_data.h>
 
-DECLARE_GLOBAL_DATA_PTR;
-
-#if IS_ENABLED(CONFIG_TARGET_SOCFPGA_AGILEX5)
+#if IS_ENABLED(CONFIG_ARCH_SOCFPGA_AGILEX5)
 static struct mm_region socfpga_agilex5_mem_map[] = {
 	{
 		/* OCRAM 512KB */
@@ -55,6 +52,20 @@ static struct mm_region socfpga_agilex5_mem_map[] = {
 		.virt	= 0x80000000UL,
 		.phys	= 0x80000000UL,
 		.size	= 0x80000000UL,
+		.attrs	= PTE_BLOCK_MEMTYPE(MT_NORMAL) |
+				PTE_BLOCK_INNER_SHARE,
+	}, {
+		/* MEM 30GB */
+		.virt	= 0x880000000UL,
+		.phys	= 0x880000000UL,
+		.size	= 0x780000000UL,
+		.attrs	= PTE_BLOCK_MEMTYPE(MT_NORMAL) |
+				PTE_BLOCK_INNER_SHARE,
+	}, {
+		/* MEM 480GB */
+		.virt	= 0x8800000000UL,
+		.phys	= 0x8800000000UL,
+		.size	= 0x7800000000UL,
 		.attrs	= PTE_BLOCK_MEMTYPE(MT_NORMAL) |
 				PTE_BLOCK_INNER_SHARE,
 	}, {

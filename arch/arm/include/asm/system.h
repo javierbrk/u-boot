@@ -171,6 +171,12 @@ static inline unsigned int current_el(void)
 	return 3 & (el >> 2);
 }
 
+static inline unsigned int current_pl(void)
+{
+	/* Aarch32 compatibility */
+	return current_el();
+};
+
 static inline unsigned long get_sctlr(void)
 {
 	unsigned int el;
@@ -303,7 +309,25 @@ void flush_l3_cache(void);
  * @emerg: Also map the region in the emergency table
  */
 void mmu_map_region(phys_addr_t start, u64 size, bool emerg);
+
+/**
+ * mmu_change_region_attr() - change a mapped region attributes
+ *
+ * @start: Start address of the region
+ * @size:  Size of the region
+ * @aatrs: New attributes
+ */
 void mmu_change_region_attr(phys_addr_t start, size_t size, u64 attrs);
+
+/**
+ * mmu_change_region_attr_nobreak() - change a mapped region attributes without doing
+ *                                    break-before-make
+ *
+ * @start: Start address of the region
+ * @size:  Size of the region
+ * @aatrs: New attributes
+ */
+void mmu_change_region_attr_nobreak(phys_addr_t addr, size_t size, u64 attrs);
 
 /*
  * smc_call() - issue a secure monitor call
@@ -318,6 +342,7 @@ void smc_call(struct pt_regs *args);
 void __noreturn psci_system_reset(void);
 void __noreturn psci_system_reset2(u32 reset_level, u32 cookie);
 void __noreturn psci_system_off(void);
+int psci_features(u32 psci_func_id);
 
 #ifdef CONFIG_ARMV8_PSCI
 extern char __secure_start[];
@@ -410,11 +435,21 @@ void switch_to_hypervisor_ret(void);
 #define wfi()
 #endif
 
+#if !defined(__thumb2__)
+/*
+ * We will need to switch to ARM mode (.arm) for some instructions such as
+ * mrc p15 etc.
+ */
+#define asm_arm_or_thumb2(insn) asm volatile(".arm\n\t" insn)
+#else
+#define asm_arm_or_thumb2(insn) asm volatile(insn)
+#endif
+
 static inline unsigned long read_mpidr(void)
 {
 	unsigned long val;
 
-	asm volatile("mrc p15, 0, %0, c0, c0, 5" : "=r" (val));
+	asm_arm_or_thumb2("mrc p15, 0, %0, c0, c0, 5" : "=r" (val));
 
 	return val;
 }
@@ -438,16 +473,51 @@ static inline int is_hyp(void)
 #endif
 }
 
+static inline int is_usr(void)
+{
+	return (get_cpsr() & 0x1f) == 0x10;
+}
+
+static inline unsigned int current_pl(void)
+{
+	/*
+	 * ARM DDI 0406C.d ID040418 , page 140 chapter A3.6.1 "Processor
+	 * privilege levels, execution privilege, and access privilege",
+	 * clarifies the PLx levels as follows (abbreviated):
+	 * The characteristics of the privilege levels are:
+	 * - PL0 - The privilege level of application software, that
+	 *         executes in User mode.
+	 * - PL1 - Software execution in all modes other than User mode
+	 *         and Hyp mode is at PL1.
+	 * - PL2 - Software executing in Hyp mode executes at PL2.
+	 */
+	if (is_hyp())	/* HYP */
+		return 2;
+
+	if (is_usr())	/* USR */
+		return 0;
+
+	return 1;	/* The rest */
+}
+
+static inline unsigned int current_el(void)
+{
+	/* Aarch64 compatibility */
+	return current_pl();
+};
+
 static inline unsigned int get_cr(void)
 {
 	unsigned int val;
 
 	if (is_hyp())
-		asm volatile("mrc p15, 4, %0, c1, c0, 0	@ get CR" : "=r" (val)
+		asm_arm_or_thumb2("mrc p15, 4, %0, c1, c0, 0	@ get CR"
+								  : "=r" (val)
 								  :
 								  : "cc");
 	else
-		asm volatile("mrc p15, 0, %0, c1, c0, 0	@ get CR" : "=r" (val)
+		asm_arm_or_thumb2("mrc p15, 0, %0, c1, c0, 0	@ get CR"
+								  : "=r" (val)
 								  :
 								  : "cc");
 	return val;
@@ -456,11 +526,11 @@ static inline unsigned int get_cr(void)
 static inline void set_cr(unsigned int val)
 {
 	if (is_hyp())
-		asm volatile("mcr p15, 4, %0, c1, c0, 0	@ set CR" :
+		asm_arm_or_thumb2("mcr p15, 4, %0, c1, c0, 0	@ set CR" :
 								  : "r" (val)
 								  : "cc");
 	else
-		asm volatile("mcr p15, 0, %0, c1, c0, 0	@ set CR" :
+		asm_arm_or_thumb2("mcr p15, 0, %0, c1, c0, 0	@ set CR" :
 								  : "r" (val)
 								  : "cc");
 	isb();

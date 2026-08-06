@@ -11,8 +11,6 @@
 
 #include <linux/bitops.h>
 #include <linux/list.h>
-#include <linux/sizes.h>
-#include <linux/compiler.h>
 #include <linux/dma-direction.h>
 #include <cyclic.h>
 #include <part.h>
@@ -56,6 +54,7 @@ struct bd_info;
 #define MMC_VERSION_4_5		MAKE_MMC_VERSION(4, 5, 0)
 #define MMC_VERSION_5_0		MAKE_MMC_VERSION(5, 0, 0)
 #define MMC_VERSION_5_1		MAKE_MMC_VERSION(5, 1, 0)
+#define MMC_VERSION_5_1B	MAKE_MMC_VERSION(5, 1, 0xB)
 
 #define MMC_CAP(mode)		(1 << mode)
 #define MMC_MODE_HS		(MMC_CAP(MMC_HS) | MMC_CAP(SD_HS))
@@ -68,6 +67,7 @@ struct bd_info;
 #define MMC_CAP_NONREMOVABLE	BIT(14)
 #define MMC_CAP_NEEDS_POLL	BIT(15)
 #define MMC_CAP_CD_ACTIVE_HIGH  BIT(16)
+#define MMC_CAP_CMD23		BIT(17)
 
 #define MMC_MODE_8BIT		BIT(30)
 #define MMC_MODE_4BIT		BIT(29)
@@ -78,6 +78,10 @@ struct bd_info;
 
 #define IS_SD(x)	((x)->version & SD_VERSION_SD)
 #define IS_MMC(x)	((x)->version & MMC_VERSION_MMC)
+
+#define CID_MANFID_MICRON       0x13
+#define CID_MANFID_SAMSUNG      0x15
+#define CID_MANFID_SANDISK      0x45
 
 #define MMC_DATA_READ		1
 #define MMC_DATA_WRITE		2
@@ -112,6 +116,7 @@ struct bd_info;
 
 #define MMC_CMD62_ARG1			0xefac62ec
 #define MMC_CMD62_ARG2			0xcbaea7
+#define MMC_CMD62_ARG_SANDISK		0x254ddec4
 
 #define SD_CMD_SEND_RELATIVE_ADDR	3
 #define SD_CMD_SWITCH_FUNC		6
@@ -136,6 +141,8 @@ static inline bool mmc_is_tuning_cmd(uint cmdidx)
 /* SCR definitions in different words */
 #define SD_HIGHSPEED_BUSY	0x00020000
 #define SD_HIGHSPEED_SUPPORTED	0x00020000
+
+#define SD_SCR_CMD23_SUPPORT	BIT(1)
 
 #define UHS_SDR12_BUS_SPEED	0
 #define HIGH_SPEED_BUS_SPEED	1
@@ -205,6 +212,7 @@ static inline bool mmc_is_tuning_cmd(uint cmdidx)
 /*
  * EXT_CSD fields
  */
+#define EXT_CSD_BOOT_SIZE_MULT_MICRON	125	/* R/W, vendor specific field */
 #define EXT_CSD_ENH_START_ADDR		136	/* R/W */
 #define EXT_CSD_ENH_SIZE_MULT		140	/* R/W */
 #define EXT_CSD_GP_SIZE_MULT		143	/* R/W */
@@ -488,6 +496,14 @@ struct dm_mmc_ops {
 	int (*set_ios)(struct udevice *dev);
 
 	/**
+	 * send_init_stream() - send the initialization stream: 74 clock cycles
+	 * This is used after power up before sending the first command
+	 *
+	 * @dev:	Device to update
+	 */
+	void (*send_init_stream)(struct udevice *dev);
+
+	/**
 	 * get_cd() - See whether a card is present
 	 *
 	 * @dev:	Device to check
@@ -566,6 +582,7 @@ struct dm_mmc_ops {
 
 /* Transition functions for compatibility */
 int mmc_set_ios(struct mmc *mmc);
+void mmc_send_init_stream(struct mmc *mmc);
 int mmc_getcd(struct mmc *mmc);
 int mmc_getwp(struct mmc *mmc);
 int mmc_execute_tuning(struct mmc *mmc, uint opcode);
@@ -746,6 +763,9 @@ struct mmc {
 #endif
 	u8 *ext_csd;
 	u32 cardtype;		/* cardtype read from the MMC */
+#if CONFIG_IS_ENABLED(MMC_UHS_SUPPORT)
+	u32 sd3_bus_mode;	/* Supported UHS-I bus speed modes */
+#endif
 	enum mmc_voltage current_voltage;
 	enum bus_mode selected_mode; /* mode currently used */
 	enum bus_mode best_mode; /* best mode is the supported mode with the
@@ -759,7 +779,11 @@ struct mmc {
 
 	enum bus_mode user_speed_mode; /* input speed mode from user */
 
-	CONFIG_IS_ENABLED(CYCLIC, (struct cyclic_info cyclic));
+	/*
+	 * If CONFIG_CYCLIC is not set, struct cyclic_info is
+	 * zero-size structure and does not add any space here.
+	 */
+	struct cyclic_info cyclic;
 };
 
 #if CONFIG_IS_ENABLED(DM_MMC)
@@ -979,7 +1003,7 @@ void board_mmc_power_init(void);
 int board_mmc_init(struct bd_info *bis);
 int cpu_mmc_init(struct bd_info *bis);
 int mmc_get_env_addr(struct mmc *mmc, int copy, u32 *env_addr);
-# ifdef CONFIG_SYS_MMC_ENV_PART
+# ifdef CONFIG_ENV_MMC_EMMC_HW_PARTITION
 extern uint mmc_get_env_part(struct mmc *mmc);
 # endif
 int mmc_get_env_dev(void);

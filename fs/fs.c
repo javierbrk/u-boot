@@ -24,7 +24,6 @@
 #include <ubifs_uboot.h>
 #include <btrfs.h>
 #include <asm/cache.h>
-#include <asm/global_data.h>
 #include <asm/io.h>
 #include <div64.h>
 #include <linux/math64.h>
@@ -32,8 +31,7 @@
 #include <efi_loader.h>
 #include <squashfs.h>
 #include <erofs.h>
-
-DECLARE_GLOBAL_DATA_PTR;
+#include <exfat.h>
 
 static struct blk_desc *fs_dev_desc;
 static int fs_dev_part;
@@ -143,6 +141,12 @@ static inline int fs_mkdir_unsupported(const char *dirname)
 	return -1;
 }
 
+static inline int fs_rename_unsupported(const char *old_path,
+					const char *new_path)
+{
+	return -1;
+}
+
 struct fstype_info {
 	int fstype;
 	char *name;
@@ -183,6 +187,7 @@ struct fstype_info {
 	int (*unlink)(const char *filename);
 	int (*mkdir)(const char *dirname);
 	int (*ln)(const char *filename, const char *target);
+	int (*rename)(const char *old_path, const char *new_path);
 };
 
 static struct fstype_info fstypes[] = {
@@ -211,6 +216,11 @@ static struct fstype_info fstypes[] = {
 		.readdir = fat_readdir,
 		.closedir = fat_closedir,
 		.ln = fs_ln_unsupported,
+#if CONFIG_IS_ENABLED(FAT_RENAME) && !IS_ENABLED(CONFIG_XPL_BUILD)
+		.rename = fat_rename,
+#else
+		.rename = fs_rename_unsupported,
+#endif
 	},
 #endif
 
@@ -238,6 +248,7 @@ static struct fstype_info fstypes[] = {
 		.closedir = ext4fs_closedir,
 		.unlink = fs_unlink_unsupported,
 		.mkdir = fs_mkdir_unsupported,
+		.rename = fs_rename_unsupported,
 	},
 #endif
 #if IS_ENABLED(CONFIG_SANDBOX) && !IS_ENABLED(CONFIG_XPL_BUILD)
@@ -257,6 +268,7 @@ static struct fstype_info fstypes[] = {
 		.unlink = fs_unlink_unsupported,
 		.mkdir = fs_mkdir_unsupported,
 		.ln = fs_ln_unsupported,
+		.rename = fs_rename_unsupported,
 	},
 #endif
 #if CONFIG_IS_ENABLED(SEMIHOSTING)
@@ -276,6 +288,7 @@ static struct fstype_info fstypes[] = {
 		.unlink = fs_unlink_unsupported,
 		.mkdir = fs_mkdir_unsupported,
 		.ln = fs_ln_unsupported,
+		.rename = fs_rename_unsupported,
 	},
 #endif
 #ifndef CONFIG_XPL_BUILD
@@ -296,29 +309,31 @@ static struct fstype_info fstypes[] = {
 		.unlink = fs_unlink_unsupported,
 		.mkdir = fs_mkdir_unsupported,
 		.ln = fs_ln_unsupported,
+		.rename = fs_rename_unsupported,
 	},
 #endif
 #endif
-#ifndef CONFIG_XPL_BUILD
-#ifdef CONFIG_FS_BTRFS
+#if CONFIG_IS_ENABLED(FS_BTRFS)
 	{
 		.fstype = FS_TYPE_BTRFS,
 		.name = "btrfs",
 		.null_dev_desc_ok = false,
 		.probe = btrfs_probe,
 		.close = btrfs_close,
-		.ls = btrfs_ls,
+		.ls = fs_ls_generic,
 		.exists = btrfs_exists,
 		.size = btrfs_size,
 		.read = btrfs_read,
 		.write = fs_write_unsupported,
 		.uuid = btrfs_uuid,
-		.opendir = fs_opendir_unsupported,
+		.opendir = btrfs_opendir,
+		.readdir = btrfs_readdir,
+		.closedir = btrfs_closedir,
 		.unlink = fs_unlink_unsupported,
 		.mkdir = fs_mkdir_unsupported,
 		.ln = fs_ln_unsupported,
+		.rename = fs_rename_unsupported,
 	},
-#endif
 #endif
 #if CONFIG_IS_ENABLED(FS_SQUASHFS)
 	{
@@ -339,9 +354,10 @@ static struct fstype_info fstypes[] = {
 		.ln = fs_ln_unsupported,
 		.unlink = fs_unlink_unsupported,
 		.mkdir = fs_mkdir_unsupported,
+		.rename = fs_rename_unsupported,
 	},
 #endif
-#if IS_ENABLED(CONFIG_FS_EROFS)
+#if CONFIG_IS_ENABLED(FS_EROFS)
 	{
 		.fstype = FS_TYPE_EROFS,
 		.name = "erofs",
@@ -360,6 +376,29 @@ static struct fstype_info fstypes[] = {
 		.ln = fs_ln_unsupported,
 		.unlink = fs_unlink_unsupported,
 		.mkdir = fs_mkdir_unsupported,
+		.rename = fs_rename_unsupported,
+	},
+#endif
+#if CONFIG_IS_ENABLED(FS_EXFAT)
+	{
+		.fstype = FS_TYPE_EXFAT,
+		.name = "exfat",
+		.null_dev_desc_ok = false,
+		.probe = exfat_fs_probe,
+		.opendir = exfat_fs_opendir,
+		.readdir = exfat_fs_readdir,
+		.ls = exfat_fs_ls,
+		.read = exfat_fs_read,
+		.size = exfat_fs_size,
+		.close = exfat_fs_close,
+		.closedir = exfat_fs_closedir,
+		.exists = exfat_fs_exists,
+		.uuid = fs_uuid_unsupported,
+		.write = exfat_fs_write,
+		.ln = fs_ln_unsupported,
+		.unlink = exfat_fs_unlink,
+		.mkdir = exfat_fs_mkdir,
+		.rename = exfat_fs_rename,
 	},
 #endif
 	{
@@ -378,6 +417,7 @@ static struct fstype_info fstypes[] = {
 		.unlink = fs_unlink_unsupported,
 		.mkdir = fs_mkdir_unsupported,
 		.ln = fs_ln_unsupported,
+		.rename = fs_rename_unsupported,
 	},
 };
 
@@ -421,10 +461,52 @@ const char *fs_get_type_name(void)
 	return fs_get_info(fs_type)->name;
 }
 
+/*
+ * Some fstypes (semihosting, ubifs) have no underlying block device
+ * and ignore the block_desc argument of their probe hook. The legacy
+ * commands (ubifsload, semihosting via env macros) just pass NULL;
+ * for "load <iface> ..." to behave the same, the dispatcher opts
+ * those fstypes in by name here, before any block-device lookup is
+ * attempted.
+ *
+ * Returns the matching fstype_info if @ifname names a fstype that
+ * opts into null_dev_desc_ok dispatch and the caller's @fstype filter
+ * permits it. Returns NULL otherwise.
+ */
+static struct fstype_info *fs_lookup_null_dev_info(const char *ifname,
+						   int fstype)
+{
+	struct fstype_info *info;
+	int i;
+
+	for (i = 0, info = fstypes; i < ARRAY_SIZE(fstypes); i++, info++) {
+		if (fstype != FS_TYPE_ANY && info->fstype != FS_TYPE_ANY &&
+		    fstype != info->fstype)
+			continue;
+		if (!info->null_dev_desc_ok || !info->name)
+			continue;
+		if (!strcmp(info->name, ifname))
+			return info;
+	}
+
+	return NULL;
+}
+
 int fs_set_blk_dev(const char *ifname, const char *dev_part_str, int fstype)
 {
 	struct fstype_info *info;
 	int part, i;
+
+	info = fs_lookup_null_dev_info(ifname, fstype);
+	if (info) {
+		fs_dev_desc = NULL;
+		memset(&fs_partition, 0, sizeof(fs_partition));
+		if (!info->probe(NULL, &fs_partition)) {
+			fs_type = info->fstype;
+			fs_dev_part = 0;
+			return 0;
+		}
+	}
 
 	part = part_get_info_by_dev_and_name_or_num(ifname, dev_part_str, &fs_dev_desc,
 						    &fs_partition, 1);
@@ -537,6 +619,7 @@ static int fs_read_lmb_check(const char *filename, ulong addr, loff_t offset,
 	int ret;
 	loff_t size;
 	loff_t read_len;
+	phys_addr_t read_addr;
 
 	/* get the actual size of the file */
 	ret = info->size(filename, &size);
@@ -554,7 +637,9 @@ static int fs_read_lmb_check(const char *filename, ulong addr, loff_t offset,
 
 	lmb_dump_all();
 
-	if (lmb_alloc_addr(addr, read_len, LMB_NONE) == addr)
+	read_addr = (phys_addr_t)addr;
+	if (!lmb_alloc_mem(LMB_MEM_ALLOC_ADDR, 0, &read_addr, read_len,
+			   LMB_NONE))
 		return 0;
 
 	log_err("** Reading file would overwrite reserved memory **\n");
@@ -706,6 +791,22 @@ int fs_ln(const char *fname, const char *target)
 
 	if (ret < 0) {
 		log_err("** Unable to create link %s -> %s **\n", fname, target);
+		ret = -1;
+	}
+	fs_close();
+
+	return ret;
+}
+
+int fs_rename(const char *old_path, const char *new_path)
+{
+	struct fstype_info *info = fs_get_info(fs_type);
+	int ret;
+
+	ret = info->rename(old_path, new_path);
+
+	if (ret < 0) {
+		log_debug("Unable to rename %s -> %s\n", old_path, new_path);
 		ret = -1;
 	}
 	fs_close();
@@ -973,6 +1074,75 @@ int do_ln(struct cmd_tbl *cmdtp, int flag, int argc, char *const argv[],
 		return 1;
 
 	return 0;
+}
+
+int do_mv(struct cmd_tbl *cmdtp, int flag, int argc, char *const argv[],
+	  int fstype)
+{
+	struct fs_dir_stream *dirs;
+	char *src = argv[3];
+	char *dst = argv[4];
+	char *new_dst = NULL;
+	int ret = 1;
+
+	if (argc != 5) {
+		ret = CMD_RET_USAGE;
+		goto exit;
+	}
+
+	if (fs_set_blk_dev(argv[1], argv[2], fstype))
+		goto exit;
+
+	dirs = fs_opendir(dst);
+	/* dirs being valid means dst points to an existing directory.
+	 * mv should copy the file/dir (keeping the same name) into the
+	 * directory
+	 */
+	if (dirs) {
+		char *src_name = strrchr(src, '/');
+
+		if (src_name)
+			src_name += 1;
+		else
+			src_name = src;
+
+		size_t dst_len = strlen(dst);
+		size_t src_len = strlen(src_name);
+		size_t total;
+
+		if (__builtin_add_overflow(dst_len, src_len, &total) ||
+		    __builtin_add_overflow(total, 2, &total)) {
+			return 0;
+		}
+
+		new_dst = calloc(1, total);
+		if (!new_dst)
+			return 0;
+
+		strcpy(new_dst, dst);
+
+		/* If there is already a trailing slash, don't add another */
+		if (new_dst[dst_len - 1] != '/') {
+			new_dst[dst_len] = '/';
+			dst_len += 1;
+		}
+
+		strcpy(new_dst + dst_len, src_name);
+		dst = new_dst;
+	}
+	fs_closedir(dirs);
+
+	if (fs_set_blk_dev(argv[1], argv[2], fstype))
+		goto exit;
+
+	if (fs_rename(src, dst))
+		goto exit;
+
+	ret = 0;
+
+exit:
+	free(new_dst);
+	return ret;
 }
 
 int do_fs_types(struct cmd_tbl *cmdtp, int flag, int argc, char * const argv[])

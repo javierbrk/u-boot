@@ -5,6 +5,7 @@
  * Copyright (C) 2023 Texas Instruments Incorporated - https://www.ti.com/
  */
 
+#include <env.h>
 #include <linux/printk.h>
 #include <linux/types.h>
 #include <asm/hardware.h>
@@ -26,7 +27,7 @@ enum {
 	IMAGE_ID_DM_FW,
 	IMAGE_ID_TIFSSTUB_HS,
 	IMAGE_ID_TIFSSTUB_FS,
-	IMAGE_ID_T,
+	IMAGE_ID_TIFSSTUB_GP,
 	IMAGE_AMT,
 };
 
@@ -136,7 +137,7 @@ void release_resources_for_core_shutdown(void)
 	}
 }
 
-void __noreturn jump_to_image_no_args(struct spl_image_info *spl_image)
+void __noreturn jump_to_image(struct spl_image_info *spl_image)
 {
 	typedef void __noreturn (*image_entry_noargs_t)(void);
 	struct ti_sci_handle *ti_sci = get_ti_sci_handle();
@@ -144,7 +145,7 @@ void __noreturn jump_to_image_no_args(struct spl_image_info *spl_image)
 	int ret, size = 0, shut_cpu = 0;
 
 	/* Release all the exclusive devices held by SPL before starting ATF */
-	ti_sci->ops.dev_ops.release_exclusive_devices(ti_sci);
+	ti_sci->ops.dev_ops.release_exclusive_devices();
 
 	ret = rproc_init();
 	if (ret)
@@ -253,6 +254,31 @@ void disable_linefill_optimization(void)
 	asm("mcr p15, 0, %0, c1, c0, 1" : : "r" (actlr));
 }
 
+int remove_fwl_region(struct fwl_data *fwl)
+{
+	struct ti_sci_handle *sci = get_ti_sci_handle();
+	struct ti_sci_fwl_ops *ops = &sci->ops.fwl_ops;
+	struct ti_sci_msg_fwl_region region;
+	int ret;
+
+	region.fwl_id = fwl->fwl_id;
+	region.region = fwl->regions;
+	region.n_permission_regs = 3;
+
+	ops->get_fwl_region(sci, &region);
+
+	/* zero out the enable field of the firewall */
+	region.control = region.control & ~0xF;
+
+	pr_debug("Disabling firewall id: %d region: %d\n",
+		 region.fwl_id, region.region);
+
+	ret = ops->set_fwl_region(sci, &region);
+	if (ret)
+		pr_err("Could not disable firewall\n");
+	return ret;
+}
+
 static void remove_fwl_regions(struct fwl_data fwl_data, size_t num_regions,
 			       enum k3_firewall_region_type fwl_type)
 {
@@ -322,19 +348,7 @@ void board_fit_image_post_process(const void *fit, int node, void **p_image,
 	}
 
 	if (i < IMAGE_AMT && i > IMAGE_ID_DM_FW) {
-		int device_type = get_device_type();
-
-		if ((device_type == K3_DEVICE_TYPE_HS_SE &&
-		     strcmp(os, "tifsstub-hs")) ||
-		   (device_type == K3_DEVICE_TYPE_HS_FS &&
-		     strcmp(os, "tifsstub-fs")) ||
-		   (device_type == K3_DEVICE_TYPE_GP &&
-		     strcmp(os, "tifsstub-gp"))) {
-			*p_size = 0;
-		} else {
-			debug("tifsstub-type: %s\n", os);
-		}
-
+		debug("tifsstub-type: %s\n", os);
 		return;
 	}
 
@@ -348,5 +362,74 @@ void board_fit_image_post_process(const void *fit, int node, void **p_image,
 	} else {
 		ti_secure_image_check_binary(p_image, p_size);
 	}
+}
+#endif
+
+#ifdef CONFIG_SPL_OS_BOOT_SECURE
+
+static bool tifalcon_loaded = false;
+
+int spl_start_uboot(void)
+{
+	/* If tifalcon.bin is not loaded, proceed to regular boot */
+	if (!tifalcon_loaded)
+		return 1;
+
+	/* Boot to linux on R5 SPL with tifalcon.bin loaded */
+	return 0;
+}
+
+int k3_r5_falcon_bootmode(void)
+{
+	char *mmcdev = env_get("mmcdev");
+
+	if (!mmcdev)
+		return BOOT_DEVICE_NOBOOT;
+
+	if (strncmp(mmcdev, "0", sizeof("0")) == 0)
+		return BOOT_DEVICE_MMC1;
+	else if (strncmp(mmcdev, "1", sizeof("1")) == 0)
+		return BOOT_DEVICE_MMC2;
+	else
+		return BOOT_DEVICE_NOBOOT;
+}
+
+int k3_r5_falcon_prep(void)
+{
+	struct spl_image_loader *loader, *drv;
+	struct spl_image_info kernel_image;
+	struct spl_boot_device bootdev;
+	int ret = -ENXIO, n_ents;
+	void *fdt;
+
+	tifalcon_loaded = true;
+	memset(&kernel_image, '\0', sizeof(kernel_image));
+	drv = ll_entry_start(struct spl_image_loader, spl_image_loader);
+	n_ents = ll_entry_count(struct spl_image_loader, spl_image_loader);
+	bootdev.boot_device = k3_r5_falcon_bootmode();
+
+	for (loader = drv; loader != drv + n_ents; loader++) {
+		if (loader && bootdev.boot_device != loader->boot_device)
+			continue;
+
+		printf("Load falcon from %s\n", spl_loader_name(loader));
+		ret = loader->load_image(&kernel_image, &bootdev);
+		if (ret)
+			continue;
+
+		fdt = spl_image_fdt_addr(&kernel_image);
+		ret = k3_falcon_fdt_fixup(fdt);
+		if (ret) {
+			printf("Failed to fixup fdt in falcon mode: %d\n", ret);
+			return ret;
+		}
+
+		return 0;
+	}
+
+	printf("%s: ERROR: No supported loader for boot dev '%d'\n", __func__,
+	       bootdev.boot_device);
+
+	return ret;
 }
 #endif

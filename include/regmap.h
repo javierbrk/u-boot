@@ -362,6 +362,43 @@ int regmap_raw_read_range(struct regmap *map, uint range_num, uint offset,
 int regmap_update_bits(struct regmap *map, uint offset, uint mask, uint val);
 
 /**
+ * regmap_set_bits() - Set bits to a regmap
+ *
+ * @map:	Regmap to write bits to
+ * @offset:	Offset in the regmap to write to
+ * @bits:	Bits to set to the regmap at the specified offset
+ *
+ * Return: 0 if OK, -ve on error
+ */
+static inline int regmap_set_bits(struct regmap *map, uint offset, uint bits)
+{
+	return regmap_update_bits(map, offset, bits, bits);
+}
+
+/**
+ * regmap_clear_bits() - Clear bits to a regmap
+ *
+ * @map:	Regmap to write bits to
+ * @offset:	Offset in the regmap to write to
+ * @bits:	Bits to clear to the regmap at the specified offset
+ *
+ * Return: 0 if OK, -ve on error
+ */
+static inline int regmap_clear_bits(struct regmap *map, uint offset, uint bits)
+{
+	return regmap_update_bits(map, offset, bits, 0);
+}
+
+static inline int regmap_assign_bits(struct regmap *map, unsigned int reg,
+				     unsigned int bits, bool value)
+{
+	if (value)
+		return regmap_set_bits(map, reg, bits);
+	else
+		return regmap_clear_bits(map, reg, bits);
+}
+
+/**
  * regmap_init_mem() - Set up a new register map that uses memory access
  *
  * @node:	Device node that uses this map

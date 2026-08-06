@@ -5,9 +5,14 @@ choice
 
 config TARGET_EVB_RK3568
 	bool "RK3568 evaluation board"
-	select BOARD_LATE_INIT
 	help
 	  RK3568 EVB is a evaluation board for Rockchp RK3568.
+
+config TARGET_ANBERNIC_RG_DS_RK3568
+	bool "Anbernic RG DS"
+	help
+	  Anbernic RG DS gaming device with Rockchip RK3568 and dual
+	  displays.
 
 config TARGET_ANBERNIC_RGXX3_RK3566
 	bool "Anbernic RGXX3"
@@ -71,13 +76,8 @@ config ROCKCHIP_STIMER_BASE
 config SYS_SOC
 	default "rk3568"
 
-config ROCKCHIP_COMMON_STACK_ADDR
-	default y
-
-config TEXT_BASE
-	default 0x00a00000
-
 source "board/rockchip/evb_rk3568/Kconfig"
+source "board/anbernic/rg-ds_rk3568/Kconfig"
 source "board/anbernic/rgxx3_rk3566/Kconfig"
 source "board/hardkernel/odroid_m1/Kconfig"
 source "board/hardkernel/odroid_m1s/Kconfig"
@@ -86,5 +86,8 @@ source "board/powkiddy/x55/Kconfig"
 source "board/qnap/ts433/Kconfig"
 source "board/radxa/zero3-rk3566/Kconfig"
 source "board/xunlong/orangepi-3b-rk3566/Kconfig"
+
+config SYS_CONFIG_NAME
+	default "rk3568_common"
 
 endif

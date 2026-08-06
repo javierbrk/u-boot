@@ -8,7 +8,8 @@ obj-$(CONFIG_PMIC_STPMIC1) += stpmic1.o
 
 ifeq ($(CONFIG_ARCH_STM32MP),y)
 obj-$(CONFIG_SET_DFU_ALT_INFO) += stm32mp_dfu.o
-obj-$(CONFIG_$(XPL_)DFU_VIRT) += stm32mp_dfu_virt.o
+obj-$(CONFIG_$(PHASE_)DFU_VIRT) += stm32mp_dfu_virt.o
+obj-$(CONFIG_FWU_MULTI_BANK_UPDATE) += stm32mp_fwu.o
 endif
 
 obj-$(CONFIG_TYPEC_STUSB160X) += stusb160x.o

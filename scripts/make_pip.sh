@@ -5,7 +5,7 @@
 #
 # Usage: make_pip.sh <tool_name> [--real]
 #
-# Where tool_name is one of patman, buildman, dtoc, binman, u_boot_pylib
+# Where tool_name is one of buildman, dtoc, binman, u_boot_pylib
 #
 # and --real means to upload to the real server (otherwise the test one is used)
 #
@@ -36,10 +36,10 @@ tool="$1"
 shift
 flags="$*"
 
-if [[ "${tool}" =~ ^(patman|buildman|dtoc|binman|u_boot_pylib)$ ]]; then
+if [[ "${tool}" =~ ^(buildman|dtoc|binman|u_boot_pylib)$ ]]; then
 	echo "Building dist package for tool ${tool}"
 else
-	echo "Unknown tool ${tool}: use u_boot_pylib, patman, buildman, dtoc or binman"
+	echo "Unknown tool ${tool}: use u_boot_pylib, buildman, dtoc or binman"
 	exit 1
 fi
 
@@ -61,8 +61,8 @@ if [ -n "${upload}" ]; then
 	fi
 fi
 
-if [[ "${tool}" =~ ^(patman|u_boot_pylib)$ ]]; then
-	# Leave test_util.py and patman test files alone
+if [[ "${tool}" =~ ^(u_boot_pylib)$ ]]; then
+	# Leave test_util.py and the u_boot_pylib test files alone
 	delete_testfiles=
 fi
 
@@ -106,6 +106,10 @@ fi
 mkdir ${dir}/tests
 cd ${dir}
 
+# Use virtual environment
+python3 -m venv .venv
+source .venv/bin/activate
+
 # Make sure the tools are up to date
 python3 -m pip install --upgrade build
 python3 -m pip install --upgrade twine
@@ -122,6 +126,8 @@ if [ -n "${upload}" ]; then
 	echo "Completed upload of ${tool}"
 fi
 
+# Finish using virtual environment
+deactivate
 rm -rf "${dir}"
 
 echo -e "done\n\n"

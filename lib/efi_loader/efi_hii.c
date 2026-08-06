@@ -324,7 +324,8 @@ add_keyboard_package(struct efi_hii_packagelist *hii,
 		list_add_tail(&layout_data->link_sys,
 			      &efi_keyboard_layout_list);
 
-		layout += layout_length;
+		layout = (struct efi_hii_keyboard_layout *)
+			 ((uintptr_t)layout + layout_length);
 	}
 
 	list_add_tail(&package_data->link, &hii->keyboard_packages);
@@ -343,6 +344,9 @@ static struct efi_hii_packagelist *new_packagelist(void)
 	struct efi_hii_packagelist *hii;
 
 	hii = malloc(sizeof(*hii));
+	if (!hii)
+		return NULL;
+
 	list_add_tail(&hii->link, &efi_package_lists);
 	hii->max_string_id = 0;
 	INIT_LIST_HEAD(&hii->string_tables);

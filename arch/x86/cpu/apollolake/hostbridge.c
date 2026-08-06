@@ -298,7 +298,7 @@ static int apl_acpi_hb_write_tables(const struct udevice *dev,
 
 	/* (Re)calculate length and checksum */
 	header->length = ctx->current - (void *)dmar;
-	header->checksum = table_compute_checksum((void *)dmar, header->length);
+	acpi_update_checksum(header);
 
 	acpi_align(ctx);
 	acpi_add_table(ctx, dmar);
@@ -366,7 +366,7 @@ ulong sa_get_tseg_base(struct udevice *dev)
 	return sa_read_reg(dev, TSEG);
 }
 
-struct acpi_ops apl_hostbridge_acpi_ops = {
+static const struct acpi_ops __maybe_unused apl_hostbridge_acpi_ops = {
 	.get_name	= apl_acpi_hb_get_name,
 #if CONFIG_IS_ENABLED(GENERATE_ACPI_TABLE)
 	.write_tables	= apl_acpi_hb_write_tables,
